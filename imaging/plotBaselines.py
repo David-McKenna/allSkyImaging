@@ -211,6 +211,11 @@ if __name__ == '__main__':
 	antLocGeneric = plotTiles(genericPlotVar, "HBA Activations using the Generic Scheme", True)
 	antLocDebug = plotTiles(debugPlotVar, "HBA Activations for the Debug Scheme", True)
 
+	baselinesEffels = getBaselines(antLocEffels)
+	baselinesGeneric = getBaselines(antLocGeneric)
+	__, __, lbaLoc = getAntMap('DE601')
+	effelsLBABaselines = getBaselines(lbaLoc)
+	
 	plotTitleSave(baselinesEffels[:, 0], baselinesEffels[:, 1], "Snapshot Baselines for Effelsberg Scheme", 5)
 	plotTitleSave(baselinesGeneric[:, 0], baselinesGeneric[:, 1], "Snapshot Baselines for Generic Scheme", 5)
 	plotTitleSave(lbaLoc[:, 0], lbaLoc[:, 1], "Effelsberg LBA Station")
