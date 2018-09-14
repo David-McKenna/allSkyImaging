@@ -107,8 +107,22 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000.},     
             {'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000.}, #6
             {'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000.}] #7
 
-ant_field_file=args[0]
+if args:
+    ant_field_file=args[0]
+else:
+    if not os.path.exists("./ant_field_file.conf"):
+        import urllib
+        urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", "./ant_field_file.conf")
+    ant_field_file = "./ant_field_file.conf"
+
+
 ant_arr_file = "/Users/eoincarley/LOFAR/data/IE613/AntennaArrays.conf"
+
+if not os.path.exists(ant_arr_file):
+    import urllib
+    urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", "AntennaArrays.conf")
+    ant_arr_file = "./AntennaArrays.conf"
+
 fh=open(ant_arr_file)
 rcumode=3
 readLatLon=False
@@ -202,15 +216,20 @@ while time_0 < time_1:
     #----------------------------------------- 
     #        Plot projections
     #
-    LBAZproj = [5.0769e3 for i in LBAZ]
-    HBAZproj = [5.0769e3  for i in HBAZ]
-    lba_to_sunzproj = [5.0769e3  for i in lba_to_sunz]
-    zsphereproj = [5.0769e3  for i in zsphere]
+    xplane = 3.80155e3
+    zplane = 5.0769e3
 
-    LBAXproj = [3.80155e3 for i in LBAX]
-    HBAXproj = [3.80155e3  for i in HBAX]
-    lba_to_sunxproj = [3.80155e3  for i in lba_to_sunx]
-    xsphereproj = [3.80155e3  for i in xsphere]
+    LBAZproj = [zplane for i in LBAZ]
+    HBAZproj = [zplane  for i in HBAZ]
+
+    LBAXproj = [xplane for i in LBAX]
+    HBAXproj = [xplane for i in HBAX]
+
+    lba_to_sunzproj = np.full_like(lba_to_sunz, zplane)
+    lba_to_sunxproj = np.full_like(lba_to_sunx, xplane)
+
+    zsphereproj = np.full_like(zsphere, zplane)
+    xsphereproj = np.full_like(xsphere, xplane)
 
     ax.plot(LBAXproj, LBAY, LBAZ, '.', color='lightgray')
     ax.plot(HBAXproj, HBAY, HBAZ, '.', color='lightgray')
@@ -226,9 +245,9 @@ while time_0 < time_1:
     #----------------------------------------- 
     #        Plot format
     #
-    ax.set_xlim3d(3.80155e3, 3.80155e3+0.25)
+    ax.set_xlim3d(xplane, xplane+0.25)
     ax.set_ylim3d(-5.2889e2 -0.25, -5.2889e2)
-    ax.set_zlim3d(5.0769e3, 5.0769e3+0.25)
+    ax.set_zlim3d(zplane, zplane+0.25)
     plt.title('IE613 solar alt: %s$^{\circ}$, az: %s$^{\circ}$ @ %s IST' % (round(alt), round(az), time_ist))
     ax.legend()
     ax.set_xlabel('X (km)')
@@ -239,7 +258,7 @@ while time_0 < time_1:
 
     plt.show()
     #pdb.set_trace()
-    plt.savefig('/Users/eoincarley/LOFAR/data/IE613/image_'+str(format(image_num, '03'))+'.png')   # save the figure to file
+    plt.savefig('./IE613sunpos' + str(format(image_num, '03'))+'.png')   # save the figure to file
     image_num+=1
     
     time_0 = time_0 + 10.0*60.0

@@ -95,7 +95,14 @@ if __name__ == '__main__':
 #
 #########################################################   
 
-ant_field_file=args[0]
+if args:
+    ant_field_file=args[0]
+else:
+    if not os.path.exists("./ant_field_file.conf"):
+        import urllib
+        urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", "./ant_field_file.conf")
+    ant_field_file = "./ant_field_file.conf"
+
 
 rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000.},            #0
             {'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000.},   #1
@@ -176,5 +183,5 @@ ax.plot(LBAX, LBAY, LBAZ, 'go', label='CS006 LBAs')
 ax.plot(HBAX, HBAY, HBAZ, 'go', label='CS006 HBAs')
 """
 
-
+plt.savefig("./ant_coords.png")
 plt.show()

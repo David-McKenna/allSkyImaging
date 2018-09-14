@@ -160,6 +160,7 @@ def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
 #
 #########################################################   
 
+print("Initialisation of functions Complete")
 
 if __name__ == '__main__':
     from optparse import OptionParser
@@ -171,8 +172,22 @@ if __name__ == '__main__':
 #
 #########################################################   
 
-ant_field_file=args[0]
+if args:
+    ant_field_file=args[0]
+else:
+    if not os.path.exists("./ant_field_file.conf"):
+        import urllib
+        urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", "./ant_field_file.conf")
+    ant_field_file = "./ant_field_file.conf"
+
+
 ant_arr_file = "/Users/eoincarley/LOFAR/data/IE613/AntennaArrays.conf"
+
+if not os.path.exists(ant_arr_file):
+    import urllib
+    urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", "AntennaArrays.conf")
+    ant_arr_file = "./AntennaArrays.conf"
+
 rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000.},            #0
             {'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000.},   #1
             {'mode':'LBL_HPF30MHZ', 'rcuID':2, 'array_type':'LBA', 'bw':100000000.},   #2
@@ -185,6 +200,9 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000.},     
 fh=open(ant_arr_file)
 rcumode=3
 readLatLon=False
+
+print("Parameter Initialisation Complete")
+
 for line in fh:
     if line.lower().startswith(rcuInfo[rcumode]['array_type'].lower()):
         readLatLon=True
@@ -197,6 +215,7 @@ for line in fh:
         continue       
 fh.close()
 
+print("Antenna Array Read")
 #------------------------------------------------
 #     Define local geographic coords and time
 #
@@ -211,6 +230,7 @@ time_1 = calendar.timegm( time.strptime("2017-12-21 20:00:00", "%Y-%m-%d %H:%M:%
 image_num = 0
 plt.ion()
 
+print("Coords / time processed")
 #----------------------------------------------------
 #      Get IE613 antenna positions and projections
 lba_xyz = read_ant_xyz(ant_field_file, rcuInfo, 3, 'IE')
@@ -243,6 +263,7 @@ xsphere0 = 7e-3*np.outer(np.cos(u), np.sin(v))
 ysphere0 = 7e-3*np.outer(np.sin(u), np.sin(v)) 
 zsphere0 = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v)) 
 
+print("Projections Processed")
 #------------------------------------------
 #       For the instrument beam image
 pixels=128       #opts.pixels
@@ -252,12 +273,14 @@ res=fov/px[0]   #pixel resolution
 dummy = 0.0   
 
 while time_0 < time_1:
+
+    print("Starting Loop")
     time_utc = time.strftime("%Y/%m/%d %H:%M", time.gmtime(time_0)) #UTC (Irish time in Winter)
     time_ist = time.strftime("%Y/%m/%d %H:%M", time.gmtime(time_0 + 60.0*60.0)) # Irish Standard Time (Irish time in Summer)
     obs.date = time_utc
     sun = ephem.Sun()
     sun.compute(obs)
-
+    print("Sun Obtained")
 
     fig = plt.figure(figsize=(18, 10))
 
@@ -269,7 +292,7 @@ while time_0 < time_1:
     src.compute(obs)
     ax = plt.subplot2grid((2, 2), (0, 0), rowspan=2, projection='3d')
     #ax = fig.add_subplot(3, 2, 1, projection='3d', rowspan=2, colspan=2)
-
+    print("Plotted for IE613")
     #----------------------------------------------------
     #    Define solar ephem object to get local alt-az     
     #
@@ -281,7 +304,7 @@ while time_0 < time_1:
     lba_to_sunx = [ meanx, sun_ecef[0]/1000.0 ]
     lba_to_suny = [ meany, sun_ecef[1]/1000.0 ]
     lba_to_sunz = [ meanz, sun_ecef[2]/1000.0 ]
-
+    print("Sun object created")
     #-----------------------------------------  
     #        Make sphere for the sun
     xsphere = xsphere0 + lba_to_sunx[1]
@@ -295,17 +318,17 @@ while time_0 < time_1:
     ax.plot(HBAX, HBAY, HBAZ, 'o', color='salmon', label='HBAs (ECEF coords)', zorder=-1)
     ax.plot_surface(xsphere, ysphere, zsphere, color='y', linewidth=0.01, zorder=1)
     ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunz, 'g', zorder=2)
-
+    print("Station Plotted")
     #----------------------------------------- 
     #    Plot projections on the XYZ planes
     #
-    lba_to_sunzproj = [zplane  for i in lba_to_sunz]
-    zsphereproj = [zplane  for i in zsphere]
-    lba_to_sunxproj = [xplane  for i in lba_to_sunx]
-    xsphereproj = [xplane for i in xsphere]
-    lba_to_sunyproj = [yplane  for i in lba_to_suny]
-    ysphereproj = [yplane  for i in ysphere]
+    lba_to_sunzproj = np.full_like(lba_to_sunz, zplane)
+    lba_to_sunxproj = np.full_like(lba_to_sunx, xplane)
+    lba_to_sunyproj = np.full_like(lba_to_suny, yplane)
 
+    zsphereproj = np.full_like(zsphere, zplane)
+    xsphereproj = np.full_like(xsphere, xplane)
+    ysphereproj = np.full_like(ysphere, yplane)
 
     ax.plot(LBAXproj, LBAY, LBAZ, '.', color='lightgray', zorder=-2)
     ax.plot(HBAXproj, HBAY, HBAZ, '.', color='lightgray', zorder=-2)
@@ -321,7 +344,7 @@ while time_0 < time_1:
     ax.plot(HBAX, HBAYproj, HBAZ, '.', color='lightgray', zorder=-2)
     ax.plot(lba_to_sunx, lba_to_sunyproj, lba_to_sunz, color='lightgray', zorder=-2)
     ax.plot_surface(xsphere, ysphereproj, zsphere, color='lightgray', linewidth=0.01, zorder=-2)
-
+    print("Projecions plotted")
 
     #----------------------------------------- 
     #        Plot format
@@ -340,7 +363,7 @@ while time_0 < time_1:
     plt.gca().set_position([0, 0.0, 0.52, 1.0])
     #ax.legend()
     ax.view_init(elev=16, azim=-55.0)
-
+    print("Plot reoritentatied")
 
     ####################################
     #       Plot UV coverage
@@ -354,7 +377,7 @@ while time_0 < time_1:
     plt.ylabel('v ($\lambda$)')
     plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun' % (round(freq[0]/1e6, 1)))
     plt.axis([-10, 10, -10, 10])
-
+    print("UVW Plotted")
 
     ####################################
     #       Plot instrument beam
@@ -373,9 +396,9 @@ while time_0 < time_1:
     cax = divider.append_axes("right", size="2%", pad=0.05)
     cbar = plt.colorbar(im, cax=cax)
     cbar.set_label('log$_{10}$(I$_{beam}$)')
-
+    print("Beam Plotted")
     plt.show( )
-    #plt.savefig('/Users/eoincarley/LOFAR/data/IE613/image_'+str(format(image_num, '03'))+'.png')   # save the figure to file
+    plt.savefig('./image_'+str(format(image_num, '03'))+'.png')   # save the figure to file
     #pdb.set_trace()    
     plt.close(fig)
     print(image_num)

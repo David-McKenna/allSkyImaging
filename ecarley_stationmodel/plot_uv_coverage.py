@@ -163,8 +163,22 @@ if __name__ == '__main__':
 #
 #########################################################   
 
-ant_field_file=args[0]
+if args:
+    ant_field_file=args[0]
+else:
+    if not os.path.exists("./ant_field_file.conf"):
+        import urllib
+        urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", "./ant_field_file.conf")
+    ant_field_file = "./ant_field_file.conf"
+
+
 ant_arr_file = "/Users/eoincarley/LOFAR/data/IE613/AntennaArrays.conf"
+
+if not os.path.exists(ant_arr_file):
+    import urllib
+    urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", "AntennaArrays.conf")
+    ant_arr_file = "./AntennaArrays.conf"
+
 rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000.},            #0
             {'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000.},   #1
             {'mode':'LBL_HPF30MHZ', 'rcuID':2, 'array_type':'LBA', 'bw':100000000.},   #2
@@ -231,7 +245,7 @@ while time_0 < time_1:
     plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun @ %s IST' % (round(freq[0]/1e6, 1), time_utc))
     plt.axis([-10, 10, -10, 10])
     plt.show( )
-    plt.savefig('/Users/eoincarley/LOFAR/data/IE613/image_'+str(format(image_num, '03'))+'.png')   # save the figure to file
+    plt.savefig('./plotuvcoverage'+str(format(image_num, '03'))+'.png')   # save the figure to file
     plt.close(fig)
     image_num+=1
     time_0 = time_0+15.0*60.0
