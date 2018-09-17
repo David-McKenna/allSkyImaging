@@ -100,43 +100,41 @@ def dftImage(d,uvw,px,res,mask=False):
     """return a DFT image"""
     nants=uvw.shape[0]
     im=numpy.zeros((px[0],px[1]),dtype=complex)
-    mid_k=int(px[0]/2.)
-    mid_l=int(px[1]/2.)
+
     u=uvw[:,:,0].reshape(1, 1, uvw.shape[0], uvw.shape[1])
     v=uvw[:,:,1].reshape(1, 1, uvw.shape[0], uvw.shape[1])
     #w=uvw[:,:,2]
-    u/=mid_k
-    v/=mid_l
-    start_time=time.time()
-
-    k = np.arange(px[0])[:, np.newaxis]
-    l = np.arange(px[1])[:, np.newaxis]
-
-    k = np.repeat(k, px[1], axis = 1)
-    l = np.repeat(l, px[0], axis = 1).transpose((1,0))
-
-    centralOffset = np.array(px, dtype = int) / 2 + 6
 
     maxUV = np.max([u, v])
+    # Nyquist sampling requirement
+    res = 1. / (2. * maxUV)
 
-    normU = u.reshape(-1) / maxUV
-    normV = v.reshape(-1) / maxUV
+    imSize = int( 4. * maxUV ** 2) + 6 # 5 buffer + 1 for rounding
+    centralRef = imSize / 2
+    
+    sampleU = (u.reshape(-1) / res + centralRef).astype(int)
+    sampleV = (v.reshape(-1) / res + centralRef).astype(int)
 
-    print(maxUV, px[0], centralOffset[0])
+    sampleUV = np.vstack([sampleU, sampleV]).T
+    print(sampleUV.shape)
 
-    sampleULoc = np.round(normU * (0.5 * px[0]) + centralOffset[0]).astype(int)
-    sampleVLoc = np.round(normV * (0.5 * px[1]) + centralOffset[1]).astype(int)
+    uvGrid = np.zeros([imSize, imSize])
+
+    for sampleU, sampleV in sampleUV:
+        print(sampleU, sampleV)
+        uvGrid[sampleU, sampleV] += 1.
+
+    im = np.fft.fft2(uvGrid)
+    im = np.fft.fftshift(im.real)
+
+    plt.figure()
+    plt.imshow(im[centralRef - 10 : centralRef + 10, centralRef - 10: centralRef + 10])
+    plt.savefig("debugim.png")
+    im = np.log(im)
+
+    # Rectangular weighting sample
 
 
-    print(u, v, sampleULoc, sampleVLoc, centralOffset, px)
-
-    uvGrid = np.zeros(centralOffset * 2)
-
-    for samplePair in zip(sampleULoc, sampleVLoc):
-        uvGrid[samplePair] += 1.
-
-    im = np.fft.fft2(uvGrid).real
-    im = np.fft.fftshift(im)
 
     plt.figure()
     plt.imshow(uvGrid)
