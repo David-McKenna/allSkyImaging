@@ -98,19 +98,32 @@ def dft2(d,k,l,u,v):
     return numpy.sum(numpy.exp(-2.*numpy.pi*1j*((u*k) + (v*l))))
 def dftImage(d,uvw,px,res,mask=False):
     """return a DFT image"""
+    start_time = time.time()
     nants=uvw.shape[0]
     im=numpy.zeros((px[0],px[1]),dtype=complex)
 
     u=uvw[:,:,0].reshape(-1)
     v=uvw[:,:,1].reshape(-1)
+
+    uvMax = np.max([u, v])
+    u /= uvMax
+    v /= uvMax
     #w=uvw[:,:,2]
 
-    maxUV = np.max([u, v])
+    px = np.max(px)
     # Nyquist sampling requirement
-    res = 1. / (maxUV)
+    res = 1. / px
 
-    imSize = int( 4. * maxUV ** 2) + 11 # 5 each side as a buffer + 1 for rounding
+    # FFT More efficient with an odd number of steps / easier to center data.
+    if px % 2:
+        offset = 0
+    else:
+        offset = 1
+
+    imSize = px + 10 + offset # 5 each side as a buffer + offset
     centralRef = imSize / 2
+
+    print(px, uvMax, res, imSize, centralRef)
     
     #sampleU = (u.reshape(-1) / res + centralRef).astype(int)
     #sampleV = (v.reshape(-1) / res + centralRef).astype(int)
@@ -133,7 +146,7 @@ def dftImage(d,uvw,px,res,mask=False):
         sampleCache += offsets
         pointSamples = gaussLambda(sampleCache)
 
-        sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) / res + centralRef).astype(int)
+        sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) * (px / 2.) + centralRef).astype(int)
 
         uvGrid[sampleIndex[0, 0, :], sampleIndex[0, 1, :]] += pointSamples
 
@@ -141,28 +154,10 @@ def dftImage(d,uvw,px,res,mask=False):
     
     im = np.fft.fft2(uvGrid)
     im = np.fft.fftshift(np.abs(im.real)) # Abs of FFT == DFT?
-    print(im[imSize / 2 - 10: imSize / 2 + 11, imSize / 2 - 10: imSize / 2 + 11]) # imshow takes the transpose of the data
-    plt.figure()
-    plt.imshow(im[centralRef - 10 : centralRef + 10, centralRef - 10: centralRef + 10])
-    plt.savefig("debugim.png")
-    im = np.log(im)
 
-
-
-    plt.figure()
-    plt.imshow(uvGrid.T) # imshow takes the transpose of the data
-    plt.savefig("debuguvgrid.png")
-    plt.figure()
-    plt.imshow(im.T, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), interpolation = 'nearest', vmin = 0.51, vmax= 10.5) # imshow takes the transpose of the data
-    plt.savefig("debugfft.png")
-
-    plt.show()
-    print("Plotted")
-    raw_input()
-
-
-    rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
-    if rad > mid_k*res: im[k,l]=0
+#    if mask:
+#        rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
+#        im[rad] = 0.
 
 
     print("DFT Image ended after {0}".format(time.time() - start_time))
@@ -316,7 +311,7 @@ zsphere0 = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
 print("Projections Processed")
 #------------------------------------------
 #       For the instrument beam image
-pixels=256       #opts.pixels
+pixels=128       #opts.pixels
 px=[pixels,pixels]
 fov=numpy.pi    #Field of View in radians
 res=fov/px[0]   #pixel resolution
@@ -454,6 +449,7 @@ while time_0 < time_1:
     print(image_num)
     image_num+=1
     time_0 = time_0+5.0*60.0
+    raw_input()
 
 
     #ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
