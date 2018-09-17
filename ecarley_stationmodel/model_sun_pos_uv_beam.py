@@ -46,7 +46,6 @@ import datetime
 import calendar
 import pdb
 
-from skimage.transform import resize
 ######################
 #  
 #     Functions
@@ -92,8 +91,6 @@ def xyz2uvw(xyz, src, obs, f):
             if i==j: continue
             uvw[i,j]=gen_uvw(xyz[i], xyz[j], src, obs, f)[:,0,0]
     return uvw
-
-
 def dft2(d,k,l,u,v):
     """compute the 2d DFT for position (k,l) based on (d,uvw)"""
     #return numpy.sum(d*numpy.exp(-2.*numpy.pi*1j*((u*k) + (v*l))))
@@ -101,7 +98,6 @@ def dft2(d,k,l,u,v):
     return numpy.sum(numpy.exp(-2.*numpy.pi*1j*((u*k) + (v*l))))
 def dftImage(d,uvw,px,res,mask=False):
     """return a DFT image"""
-
     nants=uvw.shape[0]
     im=numpy.zeros((px[0],px[1]),dtype=complex)
     mid_k=int(px[0]/2.)
@@ -109,155 +105,16 @@ def dftImage(d,uvw,px,res,mask=False):
     u=uvw[:,:,0]
     v=uvw[:,:,1]
     w=uvw[:,:,2]
-    #u/=mid_k
-    #v/=mid_l
+    u/=mid_k
+    v/=mid_l
     start_time=time.time()
-
-    
-    gridSize = np.array([2 ** px[0], 2 ** px[1]])
-    gridDelta = 1. / gridSize
-
-    realSizes = np.array([np.max(np.abs(u)), np.max(np.abs(v))]) 
-
-    scaleFactor = gridSize / realSizes
-
-    scaleU = np.round(((u + realSizes[0]) / gridDelta[0]) * scaleFactor[0])
-    scaleV = np.round(((v + realSizes[1]) / gridDelta[1]) * scaleFactor[1])
-
-    uvPlane = np.zeros(gridSize)
-    uvPlane[scaleU, scaleV] = 1.
-
-    plt.figure()
-    plt.imshow(uvPlane)
-    plt.savefig('debuguv2.png')
-
-
-
-    '''
-
-    centralOffset = np.max(np.abs([u,v]))
-    gridLen = int((2. * centralOffset) / gridDelta) + 10 # spacing to allow for more complicated convolutions in future.
-
-    uvGrid = np.zeros([gridLen, gridLen])
-
-    sampleULoc = (np.floor((u + centralOffset) / gridDelta) + 5).astype(int)
-    sampleVLoc = (np.floor((v + centralOffset) / gridDelta) + 5).astype(int)
-
-    uvGrid[sampleULoc, sampleVLoc] = 1.
-    #uvGrid[sampleULoc + 1, sampleVLoc + 1] = 1.
-
-    uvGrid
-
-    im = np.fft.fft2(uvGrid)
-
-    im = im[im.shape[0] / 2- px[0] / 2: im.shape[0] / 2 + px[0] / 2 , im.shape[1] / 2 - px[1] / 2: im.shape[1] / 2 + px[1] / 2].real
-
-    '''
-
-
-
-
-    '''
-    sampleGauss = lambda deltaU, deltaV: np.exp(-(np.square(deltaU) / (2. * np.square(pixMax) + np.square(deltaV) / (2. * np.square(pixMax)))))
-
-    for i in range(u.shape[0]):
-        for j in range(u.shape[1]):
-            baselineU, baselineV = u[i, j], v[i, j]
-            sampleU, sampleV = baselineU % gridDelta, baselineV % gridDelta
-
-            sampleU = sampleU + np.arange(-5, 6)
-            sampleV = sampleV + np.arange(-5, 6)
-
-            gridSamples = np.meshgrid(sampleU, sampleV)
-
-            sampledPoints = sampleGauss(gridSamples[0], gridSamples[1])
-
-            sampledIndicesU = ((baselineU - sampleU) / gridDelta).astype(int)
-            sampledIndicesV = ((baselineV - sampleV) / gridDelta).astype(int)
-
-            print(sampledIndicesU, sampledIndicesV, sampledPoints, sampledPoints.shape)
-            uvGrid[sampledIndicesU, sampledIndicesV] += sampledPoints
-
-    plt.figure()
-    plt.imshow(uvGrid)
-    plt.savefig("./debuguv.png")
-    '''
-
-
-
-    '''
-    gridXLen = 2. * np.max(u)
-    gridYLen = 2. * np.max(v)
-
-    gridXSpacing = 1. / float(px[0])
-    gridYSpacing = 1. / float(px[1])
-
-    gridXLen = int(gridXLen / gridXSpacing) + 10
-    gridYLen = int(gridYLen / gridYSpacing) + 10
-
-    print(gridXLen, gridYLen)
-
-    uResample = u + np.max(u) + 5
-    uResampleMod = uResample % gridXSpacing
-    vResample = v + np.max(v) + 5
-    vResampleMod = vResample % gridYSpacing
-
-    uResampleIndex = (uResample - uResampleMod) * 
-    uResampleIndex = (np.repeat(uResampleIndex[..., np.newaxis], 11, axis = 2) + np.arange(-5, 6)).astype(int)
-
-    vResampleIndex = (vResample - vResampleMod)
-    vResampleIndex = (np.repeat(vResampleIndex[..., np.newaxis], 11, axis = 2) + np.arange(-5, 6)).astype(int)
-
-    uvPlane = np.zeros([gridXLen, gridYLen])
-
-    samples = np.mgrid[-5:6]
-    sampleGauss = lambda deltaU, deltaV: np.exp(-(np.square(deltaU) / (2. * np.square(px[0]) + np.square(deltaV) / (2. * np.square(px[1])))))
-
-    uSamplePoints = np.repeat(uResampleMod[..., np.newaxis], 11, axis = 2) + np.arange(-5, 6)
-    vSamplePoints = np.repeat(vResampleMod[..., np.newaxis], 11, axis = 2) + np.arange(-5, 6)
-
-    sampledGaussians = sampleGauss(uSamplePoints, vSamplePoints)
-    uvPlane[uResampleIndex, vResampleIndex] += sampledGaussians
-    '''
-        
-    '''
-    vGauss = lambda delta: np.exp(-np.square(delta) / (2. * np.square(px[1])))
-
-    for idx1, listVar in enumerate(vResample):
-        for idx2, baseline in enumerate(listVar):
-            deltas = samples + vResampleMod[idx1, idx2]
-            sampledGauss = vGauss(deltas)
-            indexBase = vResampleIndex[idx1, idx2]
-            
-            uGridded[indexBase -5: indexBase + 6] += sampledGauss
-
-
-    #UVPlane = np.dstack([uGridded, vGridded])
-    plt.figure()
-    plt.imshow(uvPlane)
-    plt.savefig("./debuguv.png")
-    plt.show()
-
-
-    gauss = lambda x, sigma: np.exp(-(np.square(x) / (2. * np.square(sigma))))
-    coords = np.mgrid[-5:5]
-
-    deltaUApproxFuncs = gauss(uResampleMod, px[0])
-    deltaVApproxFuncs = gauss(vResampleMod, px[1])
-
-
-    uGridded[baselines[0] - 5: baselines[0] + 6] = deltaUApprox
-    vGridded[baselines[1] - 5: baselines[1] + 6] = deltaVApprox'''
-
-
-            
-
-
-
-
-
-    #print time.time()-start_time
-
+    for k in range(px[0]):
+        for l in range(px[1]):
+            im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
+            if mask:        #mask out region beyond field of view
+                rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
+                if rad > mid_k*res: im[k,l]=0
+                #else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
     print("DFT Image ended after {0}".format(time.time() - start_time))
     return im
 def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
@@ -526,7 +383,7 @@ while time_0 < time_1:
     #       Plot instrument beam
     ax1 = plt.subplot2grid((2, 2), (1, 1))
     img = dftImage(dummy, uvw, px, res, mask=True)
-    print(img.shape)
+    img=img.real
     img=numpy.log(img)
 
     ax1 = plt.subplot2grid((2, 2), (1, 1))
