@@ -6,10 +6,13 @@ Attributes:
     Generic_International_Station_20091110 (list): Generic HBA tile activations
 """
 import matplotlib.pyplot as plt
+import astropy.units as u
 import numpy as np
 import copy
 import csv
 import os
+
+from astropy.coordinates import SkyCoord
 
 Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
 Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
@@ -104,6 +107,32 @@ def getBaselines(antLoc):
 
 	return np.array(baselines)
 
+def getUVWPlane(baselines, astropyCoord):
+	"""Convert baselines to a UVW sampling for a given point on the sky
+	
+	Args:
+	    baselines (np.array): List of baselines between antenna
+	    astropyCoord (Skycoord): Astropy coordinate on the sky.
+	
+	Returns:
+	    TYPE: Description
+	"""
+	ra = astropyCoord.icrs.ra.to(u.rad)
+	dec = astropyCoord.icrs.dec.to(u.rad)
+
+	transformMaxtrix = np.array([
+		[np.sin(ra), np.cos(ra), 0],
+		[-1. * np.sin(dec) * np.cos(ra), np.sin(dec) * np.sin(ra), np.cos(dec)],
+		[np.cos(dec) * np.cos(ra), -1. * np.cos(dec) * np.sin(ra), np.sin(dec)]
+		])
+
+	if baselines.shape[1] != 3:
+		transformMaxtrix = transformMaxtrix[:2, :2]
+
+	uvw = np.dot(transformMaxtrix, baselines.T)
+
+	return uvw.T
+
 def populateSelections(lengths, selections):
 	"""Given a structure of tiles and a list of activations per-tile, return an array in the 
 		same structure as the tile layout but with the selected antenna in place of their ID number
@@ -181,6 +210,19 @@ def getAntMap(station = 'IE613'):
 	lbaLoc = np.array(lbaLoc, dtype = float)
 	return fullArr, hbaLoc, lbaLoc
 
+def getStationLoc(station = 'IE613', typeVar = 'HBA', time = None):
+
+	with open("./fallows_station_etrs_coords.txt", 'rb') as fileRef:
+		elementReader = csv.reader(fileRef, delimiter = '\t')
+
+		for row in elementReader:
+			if row[0] == station:
+				if row[1] == typeVar:
+					break
+
+		if not time:
+			return SkyCoord(lat = row[3], long = row[4])
+
 def plotTitleSave(dataX, dataY, title, scatterSize = None):
 	"""Plot data, give it a title, save it to disk.
 	
@@ -215,7 +257,7 @@ if __name__ == '__main__':
 	baselinesGeneric = getBaselines(antLocGeneric)
 	__, __, lbaLoc = getAntMap('DE601')
 	effelsLBABaselines = getBaselines(lbaLoc)
-	
+
 	plotTitleSave(baselinesEffels[:, 0], baselinesEffels[:, 1], "Snapshot Baselines for Effelsberg Scheme", 5)
 	plotTitleSave(baselinesGeneric[:, 0], baselinesGeneric[:, 1], "Snapshot Baselines for Generic Scheme", 5)
 	plotTitleSave(lbaLoc[:, 0], lbaLoc[:, 1], "Effelsberg LBA Station")
