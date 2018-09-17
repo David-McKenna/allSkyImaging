@@ -101,51 +101,69 @@ def dftImage(d,uvw,px,res,mask=False):
     nants=uvw.shape[0]
     im=numpy.zeros((px[0],px[1]),dtype=complex)
 
-    u=uvw[:,:,0].reshape(1, 1, uvw.shape[0], uvw.shape[1])
-    v=uvw[:,:,1].reshape(1, 1, uvw.shape[0], uvw.shape[1])
+    u=uvw[:,:,0].reshape(-1)
+    v=uvw[:,:,1].reshape(-1)
     #w=uvw[:,:,2]
 
     maxUV = np.max([u, v])
     # Nyquist sampling requirement
-    res = 1. / (2. * maxUV)
+    res = 1. / (maxUV)
 
-    imSize = int( 4. * maxUV ** 2) + 6 # 5 buffer + 1 for rounding
+    imSize = int( 4. * maxUV ** 2) + 11 # 5 each side as a buffer + 1 for rounding
     centralRef = imSize / 2
     
-    sampleU = (u.reshape(-1) / res + centralRef).astype(int)
-    sampleV = (v.reshape(-1) / res + centralRef).astype(int)
+    #sampleU = (u.reshape(-1) / res + centralRef).astype(int)
+    #sampleV = (v.reshape(-1) / res + centralRef).astype(int)
 
-    sampleUV = np.vstack([sampleU, sampleV]).T
-    print(sampleUV.shape)
+    #sampleUV = np.vstack([sampleU, sampleV]).T
+    #print(sampleUV.shape)
 
     uvGrid = np.zeros([imSize, imSize])
 
-    for sampleU, sampleV in sampleUV:
-        print(sampleU, sampleV)
-        uvGrid[sampleU, sampleV] += 1.
+    sampleGrid = np.mgrid[-4:5, -4:5].reshape(1, 2, -1).astype(float) * res
+    sampleCache = sampleGrid.copy()
 
+    gaussCoeff = 1. / (2. * np.square(res))
+    guassMatrix = np.array([[gaussCoeff, 0], [0, gaussCoeff]])
+    #sampledPoints: (1,2,-1)
+    gaussLambda = lambda sampledPoints: np.sum(np.exp(-1. * np.dot(guassMatrix, np.square(sampledPoints))), axis = (0,1))
+    
+    for sampleCoord in np.vstack([u, v]).T[:, np.newaxis, :]:
+        offsets = (sampleCoord % res)[..., np.newaxis]
+        sampleCache += offsets
+        pointSamples = gaussLambda(sampleCache)
+
+        sampleIndex = ((sampleCoord[..., np.newaxis] + sampleCache.reshape(1, 2, -1)) / res + centralRef).astype(int)
+
+        uvGrid[sampleIndex[0, 0, :], sampleIndex[0, 1, :]] += pointSamples
+
+        sampleCache -= offsets
+    
     im = np.fft.fft2(uvGrid)
-    im = np.fft.fftshift(im.real)
-
+    im = np.fft.fftshift(np.abs(im.real)) # Abs of FFT == DFT?
+    print(im[imSize / 2 - 10: imSize / 2 + 11, imSize / 2 - 10: imSize / 2 + 11]) # imshow takes the transpose of the data
     plt.figure()
     plt.imshow(im[centralRef - 10 : centralRef + 10, centralRef - 10: centralRef + 10])
     plt.savefig("debugim.png")
     im = np.log(im)
 
-    # Rectangular weighting sample
-
 
 
     plt.figure()
-    plt.imshow(uvGrid)
+    plt.imshow(uvGrid.T) # imshow takes the transpose of the data
     plt.savefig("debuguvgrid.png")
     plt.figure()
-    plt.imshow(im, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+    plt.imshow(im.T, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), interpolation = 'nearest', vmin = 0.51, vmax= 10.5) # imshow takes the transpose of the data
     plt.savefig("debugfft.png")
 
     plt.show()
     print("Plotted")
     raw_input()
+
+
+    rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
+    if rad > mid_k*res: im[k,l]=0
+
 
     print("DFT Image ended after {0}".format(time.time() - start_time))
     return im
@@ -298,7 +316,7 @@ zsphere0 = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
 print("Projections Processed")
 #------------------------------------------
 #       For the instrument beam image
-pixels=512       #opts.pixels
+pixels=256       #opts.pixels
 px=[pixels,pixels]
 fov=numpy.pi    #Field of View in radians
 res=fov/px[0]   #pixel resolution

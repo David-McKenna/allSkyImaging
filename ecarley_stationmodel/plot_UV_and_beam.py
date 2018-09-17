@@ -114,6 +114,7 @@ def dftImage(d,uvw,px,res,mask=False):
                 if rad > mid_k*res: im[k,l]=0
                 #else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
     print time.time()-start_time
+
     return im
 def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
     fh=open(ant_field_file)
