@@ -129,11 +129,11 @@ def dftImage(d,uvw,px,res,mask=False):
     gaussLambda = lambda sampledPoints: np.sum(np.exp(-1. * np.dot(guassMatrix, np.square(sampledPoints))), axis = (0,1))
     
     for sampleCoord in np.vstack([u, v]).T[:, np.newaxis, :]:
-        offsets = (sampleCoord % res)[..., np.newaxis]
+        offsets = res - (sampleCoord % res)[..., np.newaxis]
         sampleCache += offsets
         pointSamples = gaussLambda(sampleCache)
 
-        sampleIndex = ((sampleCoord[..., np.newaxis] + sampleCache.reshape(1, 2, -1)) / res + centralRef).astype(int)
+        sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) / res + centralRef).astype(int)
 
         uvGrid[sampleIndex[0, 0, :], sampleIndex[0, 1, :]] += pointSamples
 
