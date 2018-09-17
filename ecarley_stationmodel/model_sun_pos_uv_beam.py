@@ -102,19 +102,53 @@ def dftImage(d,uvw,px,res,mask=False):
     im=numpy.zeros((px[0],px[1]),dtype=complex)
     mid_k=int(px[0]/2.)
     mid_l=int(px[1]/2.)
-    u=uvw[:,:,0]
-    v=uvw[:,:,1]
-    w=uvw[:,:,2]
+    u=uvw[:,:,0].reshape(1, 1, uvw.shape[0], uvw.shape[1])
+    v=uvw[:,:,1].reshape(1, 1, uvw.shape[0], uvw.shape[1])
+    #w=uvw[:,:,2]
     u/=mid_k
     v/=mid_l
     start_time=time.time()
-    for k in range(px[0]):
-        for l in range(px[1]):
-            im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
-            if mask:        #mask out region beyond field of view
-                rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
-                if rad > mid_k*res: im[k,l]=0
-                #else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
+
+    k = np.arange(px[0])[:, np.newaxis]
+    l = np.arange(px[1])[:, np.newaxis]
+
+    k = np.repeat(k, px[1], axis = 1)
+    l = np.repeat(l, px[0], axis = 1).transpose((1,0))
+
+    centralOffset = np.array(px, dtype = int) / 2 + 6
+
+    maxUV = np.max([u, v])
+
+    normU = u.reshape(-1) / maxUV
+    normV = v.reshape(-1) / maxUV
+
+    print(maxUV, px[0], centralOffset[0])
+
+    sampleULoc = np.round(normU * (0.5 * px[0]) + centralOffset[0]).astype(int)
+    sampleVLoc = np.round(normV * (0.5 * px[1]) + centralOffset[1]).astype(int)
+
+
+    print(u, v, sampleULoc, sampleVLoc, centralOffset, px)
+
+    uvGrid = np.zeros(centralOffset * 2)
+
+    for samplePair in zip(sampleULoc, sampleVLoc):
+        uvGrid[samplePair] += 1.
+
+    im = np.fft.fft2(uvGrid).real
+    im = np.fft.fftshift(im)
+
+    plt.figure()
+    plt.imshow(uvGrid)
+    plt.savefig("debuguvgrid.png")
+    plt.figure()
+    plt.imshow(im, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+    plt.savefig("debugfft.png")
+
+    plt.show()
+    print("Plotted")
+    raw_input()
+
     print("DFT Image ended after {0}".format(time.time() - start_time))
     return im
 def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
@@ -266,7 +300,7 @@ zsphere0 = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
 print("Projections Processed")
 #------------------------------------------
 #       For the instrument beam image
-pixels=128       #opts.pixels
+pixels=512       #opts.pixels
 px=[pixels,pixels]
 fov=numpy.pi    #Field of View in radians
 res=fov/px[0]   #pixel resolution
