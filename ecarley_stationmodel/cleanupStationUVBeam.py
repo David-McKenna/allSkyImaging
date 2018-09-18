@@ -275,11 +275,18 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 	obs.elevation = antLatLongEle[2]
 	obs.epoch=2000.0
 
+	print(obsTime)
+
 	obs.date = obsTime
+
+	print(obs.date)
+
 	initTime = str(obs.previous_rising(sunObj))[:-5] + '00:00'
+	print(initTime)
 	initTime = initTime[:-7] + str(int(initTime[-7]) + 1) + initTime[-6:]
 	endTime = str(obs.next_setting(ephem.Sun()))[:-5] + '00:00'
 
+	print(initTime,endTime)
 	initTime = calendar.timegm( time.strptime(initTime, "%Y/%m/%d %H:%M:%S") )
 	endTime = calendar.timegm( time.strptime(endTime, "%Y/%m/%d %H:%M:%S") )
 	initTime = datetime.datetime.utcfromtimestamp(initTime)
@@ -334,11 +341,11 @@ def mainCall(opts, args):
 	pixels = opts.pixels
 
 	if obsTime in ['summer', 'winter']:
-		if obsTime == 'summer': obsTime = '21-06'
-		elif obsTime == 'winter': obsTime = '21-12'
+		if obsTime == 'summer': obsTime = '21/06'
+		elif obsTime == 'winter': obsTime = '21/12'
 		else: print("Broken date statement, this message should be unreachable.")
-
-	obsTime = "2017-{0} 13:00:00".format(obsTime) # Apparently ephem adds a year when you get the next sunrise.
+	print(obsTime)
+	obsTime = "2017/{0} 13:00:00".format(obsTime) # Apparently ephem adds a year when you get the next sunrise.
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
@@ -366,7 +373,7 @@ def mainCall(opts, args):
 	#      Get IE613 antenna positions and projections	
 	zplane = 5.0769e3
 	xplane = 3.80155e3
-	yplane = -5.288e2
+	yplane = -5.28875e2
 	planeConsts = [zplane, xplane, yplane]
 
 	xLBA, yLBA, zLBA, meanLbaArr, zLbaProj, xLbaProj, yLbaProj, sphereInit = plotConsts(xyzLBA, planeConsts)
@@ -391,9 +398,11 @@ def mainCall(opts, args):
 	while refTime < endTime:
 	
 		print("Starting Loop")
+
 		refTimeUtc = refTime #UTC (Use for Winter)
 		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
 		
+		print(refTimeUtc, refTimeIst)
 		#if pltLba:
 		#	 = processLba()
 
@@ -590,7 +599,7 @@ if __name__ == '__main__':
 	o.add_option('-c', '--hba', action = 'store_true', dest = 'HBA', help = "Plot HBA UV/beam in output image.", default = False)
 	
 	o.add_option('-a', '--hba_activation', dest = 'HBA_act', help = "HBA activation pattern ('effelsberg', 'generic', 'debug', ...)", default = None)
-	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in dd-mm syntax of 'winter' / 'summer')", default = 'winter')
+	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in mm/dd syntax, or 'winter' / 'summer' for solstaces)", default = 'winter')
 	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels", default = 128)
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
