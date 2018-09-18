@@ -275,24 +275,18 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 	obs.elevation = antLatLongEle[2]
 	obs.epoch=2000.0
 
-	print(obsTime)
-
 	obs.date = obsTime
 
-	print(obs.date)
-
 	initTime = str(obs.previous_rising(sunObj))[:-5] + '00:00'
-	print(initTime)
+
 	initTime = initTime[:-7] + str(int(initTime[-7]) + 1) + initTime[-6:]
 	endTime = str(obs.next_setting(ephem.Sun()))[:-5] + '00:00'
 
-	print(initTime,endTime)
 	initTime = calendar.timegm( time.strptime(initTime, "%Y/%m/%d %H:%M:%S") )
 	endTime = calendar.timegm( time.strptime(endTime, "%Y/%m/%d %H:%M:%S") )
 	initTime = datetime.datetime.utcfromtimestamp(initTime)
 	endTime = datetime.datetime.utcfromtimestamp(endTime)
 
-	print(initTime, endTime)
 
 	sunObj.compute(obs)
 	sourceObj = sunObj
@@ -341,10 +335,9 @@ def mainCall(opts, args):
 	pixels = opts.pixels
 
 	if obsTime in ['summer', 'winter']:
-		if obsTime == 'summer': obsTime = '21/06'
-		elif obsTime == 'winter': obsTime = '21/12'
+		if obsTime == 'summer': obsTime = '06/21'
+		elif obsTime == 'winter': obsTime = '12/21'
 		else: print("Broken date statement, this message should be unreachable.")
-	print(obsTime)
 	obsTime = "2017/{0} 13:00:00".format(obsTime) # Apparently ephem adds a year when you get the next sunrise.
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
