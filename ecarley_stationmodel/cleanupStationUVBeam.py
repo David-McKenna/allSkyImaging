@@ -347,7 +347,7 @@ def mainCall(opts, args):
 		if obsTime == 'summer': obsTime = '06/21'
 		elif obsTime == 'winter': obsTime = '12/21'
 		else: print("Broken date statement, this message should be unreachable.")
-	obsTime = "2017/{0} 13:00:00".format(obsTime) # Apparently ephem adds a year when you get the next sunrise.
+	obsTime = "2018/{0} 13:00:00".format(obsTime)
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
