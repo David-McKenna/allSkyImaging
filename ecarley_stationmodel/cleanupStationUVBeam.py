@@ -303,17 +303,17 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 	return uvw, freq, initTime, endTime, xyz, obs, sunObj
 
 def plotConsts(xyz, planeConsts):
-	x = [coords[0] / 1e3 for coords in xyz]
-	y = [coords[1] / 1e3 for coords in xyz]
-	z = [coords[2] / 1e3 for coords in xyz]
+	x = np.array([coords[0] / 1e3 for coords in xyz])
+	y = np.array([coords[1] / 1e3 for coords in xyz])
+	z = np.array([coords[2] / 1e3 for coords in xyz])
 
 	meanX = np.mean(x)
 	meanY = np.mean(y)
 	meanZ = np.mean(z)
 
-	zproj = [planeConsts[0] for i in z]
-	xproj = [planeConsts[1] for i in x]
-	yproj = [planeConsts[2] for i in y]
+	zproj = np.full_like(z, planeConsts[0])
+	xproj = np.full_like(x, planeConsts[1])
+	yproj = np.full_like(y, planeConsts[2])
 
 	u = np.linspace(0, 2. * np.pi, 200)
 	v = np.linspace(0, np.pi, 200)
@@ -394,6 +394,12 @@ def mainCall(opts, args):
 		refTimeUtc = refTime #UTC (Use for Winter)
 		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
 		
+		#if pltLba:
+		#	 = processLba()
+
+		#if pltHba:
+		#	 = processHba()
+
 		obsLba.date = refTimeUtc
 		obsHba.date = refTimeUtc
 
@@ -478,7 +484,8 @@ def mainCall(opts, args):
 		zSphereProjHBA = np.full_like(zSphereHBA, zplane)
 		xSphereProjHBA = np.full_like(xSphereHBA, xplane)
 		ySphereProjHBA = np.full_like(ySphereHBA, yplane)
-	
+
+
 		ax.plot(xLbaProj, yLBA, zLBA, '.', color='lightgray', zorder=-2)
 		ax.plot(xHbaProj, yHBA, zHBA, '.', color='lightgray', zorder=-2)
 		ax.plot(lba_to_sunxproj, lba_to_suny, lba_to_sunz, color='lightgray', zorder=-2)
