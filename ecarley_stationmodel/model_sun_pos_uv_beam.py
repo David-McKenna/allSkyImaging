@@ -96,40 +96,29 @@ def dft2(d,k,l,u,v):
     #return numpy.sum(d*numpy.exp(-2.*numpy.pi*1j*((u*k) + (v*l))))
     #psf:
     return numpy.sum(numpy.exp(-2.*numpy.pi*1j*((u*k) + (v*l))))
-def dftImage(d,uvw,px,res,mask=False):
+def dftImage(d,uvw,pxPlot,res,mask=False):
     """return a DFT image"""
     start_time = time.time()
     nants=uvw.shape[0]
-    im=numpy.zeros((px[0],px[1]),dtype=complex)
+    im=numpy.zeros((pxPlot[0],pxPlot[1]),dtype=complex)
 
     u=uvw[:,:,0].reshape(-1)
     v=uvw[:,:,1].reshape(-1)
+
+    # u,v = x,y / lambda implies theta = 1 / u,v
 
     uvMax = np.max([u, v])
     u /= uvMax
     v /= uvMax
     #w=uvw[:,:,2]
 
-    px = np.max(px)
-    # Nyquist sampling requirement
-    res = 1. / px
-
-    # FFT More efficient with an odd number of steps / easier to center data.
-    if px % 2:
-        offset = 0
-    else:
-        offset = 1
-
-    imSize = px + 10 + offset # 5 each side as a buffer + offset
-    centralRef = imSize / 2
-
-    print(px, uvMax, res, imSize, centralRef)
+    res = 1. / (2. * uvMax) # 2x for Nyquist sampling
+    px = int(2. * uvMax / res)
     
-    #sampleU = (u.reshape(-1) / res + centralRef).astype(int)
-    #sampleV = (v.reshape(-1) / res + centralRef).astype(int)
-
-    #sampleUV = np.vstack([sampleU, sampleV]).T
-    #print(sampleUV.shape)
+    # Temp debug
+    pxPlot = [px, px]
+    imSize = px + 11 # 5 padding on each side + 1 for rounding
+    centralRef = imSize / 2
 
     uvGrid = np.zeros([imSize, imSize])
 
@@ -144,21 +133,38 @@ def dftImage(d,uvw,px,res,mask=False):
     for sampleCoord in np.vstack([u, v]).T[:, np.newaxis, :]:
         offsets = res - (sampleCoord % res)[..., np.newaxis]
         sampleCache += offsets
+        
+        # Gaussian
         pointSamples = gaussLambda(sampleCache)
+        
+        # Rectangular
+        #print(np.argwhere(sampleCache.reshape(1, 2, -1) == 0))
+        #pointSamples = np.zeros([81])
+        #pointSamples[30] = 1.
 
-        sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) * (px / 2.) + centralRef).astype(int)
+        sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) / (res) + centralRef).astype(int)
 
         uvGrid[sampleIndex[0, 0, :], sampleIndex[0, 1, :]] += pointSamples
 
         sampleCache -= offsets
     
+    uvGrid = uvGrid[5:-6, 5:-6] # Remove padding
     im = np.fft.fft2(uvGrid)
     im = np.fft.fftshift(np.abs(im.real)) # Abs of FFT == DFT?
 
-#    if mask:
-#        rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
-#        im[rad] = 0.
+    print(res, imSize, res * imSize)
+    
+    if mask:
+        sampleGrid = np.array(np.meshgrid(np.arange(im.shape[0]), np.arange(im.shape[1]))) - np.max(im.shape) / 2
+        maskRad = np.sqrt(np.square(sampleGrid[0] * 1.22 * res) + np.square(sampleGrid[1] * 1.22 * res)) # 1.22 factor to convert to radians
 
+        print(np.max(maskRad), np.max(sampleGrid), res, uvMax)
+        maskRad = maskRad > (2. * np.pi)
+        #print(np.argwhere(maskRad))
+        im[maskRad] = 0.
+
+        im = im[~np.all(im == 0, axis = 0)]
+        im = im[:, ~np.all(im.T == 0, axis = 1)]
 
     print("DFT Image ended after {0}".format(time.time() - start_time))
     return im

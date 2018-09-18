@@ -235,7 +235,7 @@ while time_0 < time_1:
     #       UVW calc function
     uvw=xyz2uvw(xyz, src, obs, freq[0])
  
-    pixels=256 #opts.pixels
+    pixels=512 #opts.pixels
     px=[pixels,pixels]
     fov=numpy.pi    #Field of View in radians
     res=fov/px[0]   #pixel resolution

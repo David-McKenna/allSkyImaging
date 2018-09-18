@@ -256,7 +256,7 @@ plt.axis([-10, 10, -10, 10])
 ####################################
 #       Plot instrument beam
 ax1 = plt.subplot2grid((1, 2), (0, 1))
-pixels=128       #opts.pixels
+pixels=256       #opts.pixels
 px=[pixels,pixels]
 fov=numpy.pi    #Field of View in radians
 res=fov/px[0]   #pixel resolution
