@@ -12,6 +12,17 @@ import struct
 import time
 import datetime
 import calendar
+import pytz
+
+global rcuInfo
+rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},            #0
+			{'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #1
+			{'mode':'LBL_HPF30MHZ', 'rcuID':2, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #2
+			{'mode':'LBH_HPF10MHZ', 'rcuID':3, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #3
+			{'mode':'LBH_HPF30MHZ', 'rcuID':4, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #4
+			{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
+			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
+			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
 
 def eq2top_m(ha, dec):
 	"""Return the 3x3 matrix converting equatorial coordinates to topocentric
@@ -75,29 +86,29 @@ def dft2(d,k,l,u,v):
 	return np.sum(np.exp(-2.*np.pi*1j*((u*k) + (v*l))))
 
 def dftImage(d,uvw,px,res,mask=False):
-    """return a DFT image"""
-    nants=uvw.shape[0]
-    im=np.zeros((px[0],px[1]),dtype=complex)
-    mid_k=int(px[0]/2.)
-    mid_l=int(px[1]/2.)
-    u=uvw[:,:,0]
-    v=uvw[:,:,1]
-    w=uvw[:,:,2]
-    u/=mid_k
-    v/=mid_l
-    start_time=time.time()
-    for k in range(px[0]):
-        for l in range(px[1]):
-            im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
-            if mask:        #mask out region beyond field of view
-                rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
-                if rad > mid_k*res: im[k,l]=0
-                #else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
-    print time.time()-start_time
+	"""return a DFT image"""
+	nants=uvw.shape[0]
+	im=np.zeros((px[0],px[1]),dtype=complex)
+	mid_k=int(px[0]/2.)
+	mid_l=int(px[1]/2.)
+	u=uvw[:,:,0]
+	v=uvw[:,:,1]
+	w=uvw[:,:,2]
+	u/=mid_k
+	v/=mid_l
+	start_time=time.time()
+	for k in range(px[0]):
+		for l in range(px[1]):
+			im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
+			if mask:        #mask out region beyond field of view
+				rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
+				if rad > mid_k*res: im[k,l]=0
+				#else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
+	print time.time()-start_time
 
-    # Debug after removing (0,0) UV elements
-    im = np.abs(im)
-    return im
+	# Debug after removing (0,0) UV elements
+	im = np.abs(im)
+	return im
 
 def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False):
 	"""return a FFT image"""
@@ -176,8 +187,8 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False):
 	print("DFT Image ended after {0}".format(time.time() - start_time))
 	return im
 
-def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
-	fh=open(ant_field_file)
+def read_ant_xyz(antFieldFile, rcumode, station):
+	fh=open(antFieldFile)
 	readXYZ=False
 	readArrayHDR=False
 	readArray=False
@@ -216,109 +227,156 @@ def read_ant_xyz(ant_field_file, rcuInfo, rcumode, station):
 
 	return xyz
 
+def initialiseLocalFiles(args):
+	if args:
+		antFieldFile=args[0]
+	else:
+		antFieldFile = "./antFieldFile.conf"
+		if not os.path.exists(antFieldFile):
+			import urllib
+			urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", antFieldFile)
+	
+	
+	antArrFile = "./AntennaArrays.conf"
+	
+	if not os.path.exists(antArrFile):
+		import urllib
+		urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", antArrFile)
+	
+	return antFieldFile, antArrFile
+
+def getLatLongElevation(antArrFile, arrayType):
+	with open(antArrFile) as fh:
+		readLatLon=False
+
+		for line in fh:
+			if line.lower().startswith(arrayType.lower()):
+				readLatLon=True
+				continue
+			if readLatLon:
+				lon=line.split(' ')[2]
+				lat=line.split(' ')[3]
+				elev=line.split(' ')[4]
+				readLatLon=False
+				break
+
+	return [lon, lat, elev]
+
+def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
+	antType = rcuInfo[rcuMode]['array_type']
+	antLatLongEle = np.array(getLatLongElevation(antArrFile, antType), dtype = float)
+
+	freq = np.array([rcuInfo[rcuMode]['refFreq']])
+
+	obs = ephem.Observer()
+	sunObj = ephem.Sun()
+
+	obs.lon, obs.lat = math.radians(antLatLongEle[0]), math.radians(antLatLongEle[1])
+	obs.elevation = antLatLongEle[2]
+	obs.epoch=2000.0
+
+	obs.date = obsTime
+	initTime = str(obs.previous_rising(sunObj))[:-5] + '00:00'
+	endTime = str(obs.next_setting(ephem.Sun()))[:-5] + '00:00'
+
+	initTime = datetime.datetime.utcfromtimestamp(initTime)
+	endTime = datetime.datetime.utcfromtimestamp(endTime)
+
+	print(initTime, endTime)
+
+	sunObj.compute(obs)
+	sourceObj = sunObj
+	sourceObj._ra = sunObj.ra
+	sourceObj._dec = sunObj.dec
+	sourceObj.compute(obs)
+
+	xyz = read_ant_xyz(antFieldFile, rcuMode, 'IE')
+
+	if hbaActivation is None:
+		uvw = xyz2uvw(xyz, sourceObj, obs, freq[0])
+	else:
+		return #TODO
+
+	return uvw, freq, initTime, endTime, xyz, obs, sunObj
+
+def plotConsts(xyz, planeConsts):
+	x = [coords[0] / 1e3 for coords in xyz]
+	y = [coords[1] / 1e3 for coords in xyz]
+	z = [coords[2] / 1e3 for coords in xyz]
+
+	meanX = np.mean(x)
+	meanY = np.mean(y)
+	meanZ = np.mean(z)
+
+	zproj = [planeConsts[0] for i in z]
+	xproj = [planeConsts[1] for i in x]
+	yproj = [planeConsts[2] for i in y]
+
+	u = np.linspace(0, 2. * np.pi, 200)
+	v = np.linspace(0, np.pi, 200)
+
+	xSphereInit = 7e-3*np.outer(np.cos(u), np.sin(v)) 
+	ySphereInit = 7e-3*np.outer(np.sin(u), np.sin(v)) 
+	zSphereInit = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
+
+	return x, y, z, [meanX, meanY, meanZ], zproj, xproj, yproj, [xSphereInit, ySphereInit, zSphereInit]
+
+
 def mainCall(opts, args):
 
 	fftBool = opts.fftBool
 	pltLba = opts.LBA
-	pltHba = opt.HBA
+	pltHba = opts.HBA
+	obsTime = opts.time
+	pixels = opts.pixels
 
-	if pltHba:
-		hbaAct = opt.HBA_act
-	if args:
-		ant_field_file=args[0]
-	else:
-		if not os.path.exists("./ant_field_file.conf"):
-			import urllib
-			urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", "./ant_field_file.conf")
-		ant_field_file = "./ant_field_file.conf"
-	
-	
-	ant_arr_file = "/Users/eoincarley/LOFAR/data/IE613/AntennaArrays.conf"
-	
-	if not os.path.exists(ant_arr_file):
-		import urllib
-		urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", "AntennaArrays.conf")
-		ant_arr_file = "./AntennaArrays.conf"
-	
+	if obsTime in ['summer', 'winter']:
+		if obsTime == 'summer': obsTime = '21-06'
+		elif obsTime == 'winter': obsTime = '21-12'
+		else: print("Broken date statement, this message should be unreachable.")
+
+	obsTime = "2018-{0} 13:00:00".format(obsTime)
+
+	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
 
-	rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},            #0
-				{'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #1
-				{'mode':'LBL_HPF30MHZ', 'rcuID':2, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #2
-				{'mode':'LBH_HPF10MHZ', 'rcuID':3, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #3
-				{'mode':'LBH_HPF30MHZ', 'rcuID':4, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #4
-				{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
-				{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
-				{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
-	
-	fh=open(ant_arr_file)
-	rcumode=3
-	readLatLon=False
-	
-	for line in fh:
-		if line.lower().startswith(rcuInfo[rcumode]['array_type'].lower()):
-			readLatLon=True
-			continue
-		if readLatLon:
-			lon=line.split(' ')[2]
-			lat=line.split(' ')[3]
-			elev=line.split(' ')[4]
-			readLatLon=False
-			continue       
-	fh.close()
-	
+	# TODO: move more logic into here, after cleanup
+	lbaRcuMode = opts.lba_rcu_mode
+	lbaLatLongEle = getLatLongElevation(antArrFile, 'LBA')
+
+	hbaAct = opts.HBA_act
+	hbaRcuMode = opts.hba_rcu_mode
+	hbaLatLongEle = getLatLongElevation(antArrFile, 'HBA')
+
 	print("Parameter Initialisation Complete")
 	#------------------------------------------------
 	#     Define local geographic coords and time
 	#
-	obs = ephem.Observer()
-	obs.lon = math.radians(float(lon))
-	obs.lat = math.radians(float(lat))
-	obs.elevation=float(elev)
-	obs.epoch=2000.0
-	freq = np.array([rcuInfo[rcumode]['refFreq']])
-	time_0 = calendar.timegm( time.strptime("2017-12-21 09:00:00", "%Y-%m-%d %H:%M:%S") )
-	time_1 = calendar.timegm( time.strptime("2017-12-21 20:00:00", "%Y-%m-%d %H:%M:%S") )
+	uvwLBA, freqLBA, refTime, endTime, xyzLBA, obsLba, sunLbaObj = antProc(antFieldFile, antArrFile, lbaRcuMode, obsTime)
+	uvwHBA, freqHBA, __, __, xyzHBA, obsHba, sunHbaObj = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, hbaAct)
+
 	image_num = 0
 	plt.ion()
 	
 	print("Coords / time processed")
 	#----------------------------------------------------
-	#      Get IE613 antenna positions and projections
-	lba_xyz = read_ant_xyz(ant_field_file, rcuInfo, 3, 'IE')
-	LBAX  = [ coords[0]/1e3 for coords in lba_xyz]   
-	LBAY  = [ coords[1]/1e3 for coords in lba_xyz]   
-	LBAZ  = [ coords[2]/1e3 for coords in lba_xyz]
-	
-	hba_xyz = read_ant_xyz(ant_field_file, rcuInfo, 5, 'IE')
-	HBAX  = [ coords[0]/1e3 for coords in hba_xyz]   
-	HBAY  = [ coords[1]/1e3 for coords in hba_xyz]   
-	HBAZ  = [ coords[2]/1e3 for coords in hba_xyz]  
-	
-	meanx = np.mean(LBAX)
-	meany = np.mean(LBAY)
-	meanz = np.mean(LBAZ)
-	
+	#      Get IE613 antenna positions and projections	
 	zplane = 5.0769e3
-	LBAZproj = [zplane for i in LBAZ]
-	HBAZproj = [zplane  for i in HBAZ]
 	xplane = 3.80155e3
-	LBAXproj = [xplane for i in LBAX]
-	HBAXproj = [xplane  for i in HBAX]
 	yplane = -5.288e2
-	LBAYproj = [yplane for i in LBAY]
-	HBAYproj = [yplane  for i in HBAY]
-	
-	u = np.linspace(0, 2.0*np.pi, 200)
-	v = np.linspace(0, np.pi, 200)
-	xsphere0 = 7e-3*np.outer(np.cos(u), np.sin(v)) 
-	ysphere0 = 7e-3*np.outer(np.sin(u), np.sin(v)) 
-	zsphere0 = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v)) 
+	planeConsts = [zplane, xplane, yplane]
+
+	xLBA, yLBA, zLBA, meanLbaArr, zLbaProj, xLbaProj, yLbaProj, sphereInit = plotConsts(xyzLBA, planeConsts)
+	xHBA, yHBA, zHBA, meanHbaArr, zHbaProj, xHbaProj, yHbaProj, __ = plotConsts(xyzHBA, planeConsts)
+
+	meanLbaX, meanLbaY, meanLbaZ = meanLbaArr
+	meanHbaX, meanHbaY, meanHbaZ = meanHbaArr
+
+	xSphereInit, ySphereInit, zSphereInit = sphereInit
 	
 	print("Projections Processed")
 	#------------------------------------------
 	#       For the instrument beam image
-	pixels=128       #opts.pixels
 	px=[pixels,pixels]
 	fov=np.pi    #Field of View in radians
 	res=fov/px[0]   #pixel resolution
@@ -326,52 +384,78 @@ def mainCall(opts, args):
 	
 	if not os.path.exists("./station_plots"):
 		os.mkdir("./station_plots")
-	while time_0 < time_1:
+
+	while refTime < endTime:
 	
 		print("Starting Loop")
-		time_utc = time.strftime("%Y/%m/%d %H:%M", time.gmtime(time_0)) #UTC (Irish time in Winter)
-		time_ist = time.strftime("%Y/%m/%d %H:%M", time.gmtime(time_0 + 60.0*60.0)) # Irish Standard Time (Irish time in Summer)
-		obs.date = time_utc
-		sun = ephem.Sun()
-		sun.compute(obs)
+		refTimeUtc = datetime.datetime.strftime("%Y/%m/%d %H:%M", refTime) #UTC (Use for Winter)
+		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
+		
+		obsLba.date = refTimeUtc
+		obsHba.date = refTimeUtc
+
+		sunLbaObj.compute(obsLba)
+		sunHbaObj.compute(obsHba)
 		print("Sun Obtained")
-	
+		
+		#TODO: Progamatically adjust
 		fig = plt.figure(figsize=(18, 10))
 	
 		####################################
 		#       Plot IE613 and sun
-		src=sun
-		src._ra=sun.ra
-		src._dec=sun.dec
-		src.compute(obs)
+		sourceObjLBA=sunLbaObj
+		sourceObjLBA._ra=sunObj.ra
+		sourceObjLBA._dec=sunObj.dec
+		sourceObjLBA.compute(obsLba)
+
+		sourceObjHBA=sunHbaObj
+		sourceObjHBA._ra=sunObj.ra
+		sourceObjHBA._dec=sunObj.dec
+		sourceObjHBA.compute(obsHba)
+
+
+		#TODO: Programatically adjust
 		ax = plt.subplot2grid((2, 2), (0, 0), rowspan=2, projection='3d')
-		#ax = fig.add_subplot(3, 2, 1, projection='3d', rowspan=2, colspan=2)
+
 		print("Plotted for IE613")
+
 		#----------------------------------------------------
 		#    Define solar ephem object to get local alt-az     
 		#
-		alt = math.degrees(sun.alt)
-		az = math.degrees(sun.az) 
+		alt = math.degrees(sunObj.alt)
+		az = math.degrees(sunObj.az) 
 	
 		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
 	
-		lba_to_sunx = [ meanx, sun_ecef[0]/1000.0 ]
-		lba_to_suny = [ meany, sun_ecef[1]/1000.0 ]
-		lba_to_sunz = [ meanz, sun_ecef[2]/1000.0 ]
-		print("Sun object created")
-		#-----------------------------------------  
-		#        Make sphere for the sun
-		xsphere = xsphere0 + lba_to_sunx[1]
-		ysphere = ysphere0 + lba_to_suny[1]
-		zsphere = zsphere0 + lba_to_sunz[1]
+		#TODO: Abstract
+		lba_to_sunx = [ meanLbaX, sun_ecef[0]/1000.0 ]
+		lba_to_suny = [ meanLbaY, sun_ecef[1]/1000.0 ]
+		lba_to_sunz = [ meanLbaZ, sun_ecef[2]/1000.0 ]
+
+		hba_to_sunx = [ meanHbaX, sun_ecef[0]/1000.0 ]
+		hba_to_suny = [ meanHbaY, sun_ecef[1]/1000.0 ]
+		hba_to_sunz = [ meanHbaZ, sun_ecef[2]/1000.0 ]
+
+		xSphereLBA = xSphereInit + lba_to_sunx[1]
+		ySphereLBA = ySphereInit + lba_to_suny[1]
+		zSphereLBA = zSphereInit + lba_to_sunz[1]
+
+		xSphereHBA = xSphereInit + hba_to_sunx[1]
+		ySphereHBA = ySphereInit + hba_to_suny[1]
+		zSphereHBA = zSphereInit + hba_to_sunz[1]
 	
 	
 		#----------------------------------------- 
 		#        Plot and format
-		ax.plot(LBAX, LBAY, LBAZ, 'bo', label='LBAs (ECEF coords)', zorder=-1)
-		ax.plot(HBAX, HBAY, HBAZ, 'o', color='salmon', label='HBAs (ECEF coords)', zorder=-1)
-		ax.plot_surface(xsphere, ysphere, zsphere, color='y', linewidth=0.01, zorder=1)
+		#TODO: Abstract
+		ax.plot(xLBA, yLBA, zLBA, 'bo', label='LBAs (ECEF coords)', zorder=-1)
+		ax.plot(xHBA, yHBA, zHBA, 'o', color='salmon', label='HBAs (ECEF coords)', zorder=-1)
+
+		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereLBA, color='y', linewidth=0.01, zorder=1)
 		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunz, 'g', zorder=2)
+
+		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereHBA, color='y', linewidth=0.01, zorder=1)
+		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunz, 'g', zorder=2)
 		print("Station Plotted")
 		#----------------------------------------- 
 		#    Plot projections on the XYZ planes
@@ -379,25 +463,40 @@ def mainCall(opts, args):
 		lba_to_sunzproj = np.full_like(lba_to_sunz, zplane)
 		lba_to_sunxproj = np.full_like(lba_to_sunx, xplane)
 		lba_to_sunyproj = np.full_like(lba_to_suny, yplane)
+
+		hba_to_sunzproj = np.full_like(hba_to_sunz, zplane)
+		hba_to_sunxproj = np.full_like(hba_to_sunx, xplane)
+		hba_to_sunyproj = np.full_like(hba_to_suny, yplane)
 	
-		zsphereproj = np.full_like(zsphere, zplane)
-		xsphereproj = np.full_like(xsphere, xplane)
-		ysphereproj = np.full_like(ysphere, yplane)
+		zSphereProjLBA = np.full_like(zSphereLBA, zplane)
+		xSphereProjLBA = np.full_like(xSphereLBA, xplane)
+		ySphereProjLBA = np.full_like(ySphereLBA, yplane)
+
+		zSphereProjHBA = np.full_like(zSphereHBA, zplane)
+		xSphereProjHBA = np.full_like(xSphereHBA, xplane)
+		ySphereProjHBA = np.full_like(ySphereHBA, yplane)
 	
-		ax.plot(LBAXproj, LBAY, LBAZ, '.', color='lightgray', zorder=-2)
-		ax.plot(HBAXproj, HBAY, HBAZ, '.', color='lightgray', zorder=-2)
+		ax.plot(xLbaProj, yLBA, zLBA, '.', color='lightgray', zorder=-2)
+		ax.plot(xHbaProj, yHBA, zHBA, '.', color='lightgray', zorder=-2)
 		ax.plot(lba_to_sunxproj, lba_to_suny, lba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xsphereproj, ysphere, zsphere, color='lightgray', linewidth=0.01, zorder=-2)
-	
-		ax.plot(LBAX, LBAY, LBAZproj, '.', color='lightgray', zorder=-2)
-		ax.plot(HBAX, HBAY, HBAZproj, '.', color='lightgray', zorder=-2)
+		ax.plot_surface(xSphereProjLBA, ySphereLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(hba_to_sunxproj, hba_to_suny, hba_to_sunz, color='lightgray', zorder=-2)
+		ax.plot_surface(xSphereProjHBA, ySphereHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-2)
+
+		ax.plot(xLBA, yLBA, zLbaProj, '.', color='lightgray', zorder=-2)
+		ax.plot(xHBA, yHBA, zHbaProj, '.', color='lightgray', zorder=-2)
 		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunzproj, color='lightgray', zorder=-2)
-		ax.plot_surface(xsphere, ysphere, zsphereproj, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereProjLBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunzproj, color='lightgray', zorder=-2)
+		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereProjHBA, color='lightgray', linewidth=0.01, zorder=-2)
 	
-		ax.plot(LBAX, LBAYproj, LBAZ, '.', color='lightgray', zorder=-2)
-		ax.plot(HBAX, HBAYproj, HBAZ, '.', color='lightgray', zorder=-2)
+		ax.plot(xLBA, yLbaProj, zLBA, '.', color='lightgray', zorder=-2)
+		ax.plot(xHBA, yHbaProj, zHBA, '.', color='lightgray', zorder=-2)
 		ax.plot(lba_to_sunx, lba_to_sunyproj, lba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xsphere, ysphereproj, zsphere, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot_surface(xSphereLBA, ySphereProjLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(hba_to_sunx, hba_to_sunyproj, hba_to_sunz, color='lightgray', zorder=-2)
+		ax.plot_surface(xSphereHBA, ySphereProjHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-2)
+
 		print("Projecions plotted")
 	
 		#----------------------------------------- 
@@ -421,7 +520,7 @@ def mainCall(opts, args):
 	
 		####################################
 		#       Plot UV coverage
-		uvw=xyz2uvw(lba_xyz, src, obs, freq[0])
+		uvw=xyz2uvw(xyzLBA, sourceObjLBA, obsLba, freqLBA[0])
 		U=uvw[:,:,0]
 		V=uvw[:,:,1]
 		ax0 = plt.subplot2grid((2, 2), (0, 1))
@@ -429,7 +528,7 @@ def mainCall(opts, args):
 		plt.plot(U, V, '.')
 		plt.xlabel('u ($\lambda$)')
 		plt.ylabel('v ($\lambda$)')
-		plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun' % (round(freq[0]/1e6, 1)))
+		plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
 		plt.axis([-10, 10, -10, 10])
 		print("UVW Plotted")
 	
@@ -442,7 +541,7 @@ def mainCall(opts, args):
 	
 		ax1 = plt.subplot2grid((2, 2), (1, 1))
 		im = plt.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
-		plt.title('IE613 %s MHz LBA station beam. Source: Sun' % (round(freq[0]/1e6, 1)))
+		plt.title('IE613 %s MHz LBA station beam. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
 		plt.gca().yaxis.set_major_locator(plt.NullLocator())
 		plt.gca().xaxis.set_major_locator(plt.NullLocator())
 	
@@ -457,7 +556,7 @@ def mainCall(opts, args):
 		plt.close(fig)
 		print(image_num)
 		image_num+=1
-		time_0 = time_0+5.0*60.0
+		refTime = refTime + 5.0*60.0
 		raw_input()
 	
 	
@@ -472,10 +571,18 @@ if __name__ == '__main__':
 	o = OptionParser()
 	o.set_usage('Plot XYZ of IE613 LOFAR Antennas')
 	o.set_description(__doc__)
+
+	o.add_option('--lba_rcu_mode', dest = 'lba_rcu_mode', help = "LBA RCU Mode considered for processing", default = 3)
+	o.add_option('--hba_rcu_mode', dest = 'hba_rcu_mode', help = "HBA RCU Mode considered for processing", default = 5)
+	
 	o.add_option('-f', '--fft', action = 'store_true', dest = 'fftBool', help = "Perform beam synthesis by FFT/gridding method.", default = False)
+	
 	o.add_option('-l', '--lba', action = 'store_true', dest = 'LBA', help = "Plot LBA UV/beam in output image.", default = True)
-	o.add_option('-h', '--hba', action = 'store_true', dest = 'HBA', help = "Plot HBA UV/beam in output image.", default = False)
-	o.add_option('-ha', '--hba_activation', dest = 'HBA_act', help = "HBA activation pattern ('effelsberg', 'generic', 'debug', ...)", default = None)
+	o.add_option('-c', '--hba', action = 'store_true', dest = 'HBA', help = "Plot HBA UV/beam in output image.", default = False)
+	
+	o.add_option('-a', '--hba_activation', dest = 'HBA_act', help = "HBA activation pattern ('effelsberg', 'generic', 'debug', ...)", default = None)
+	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in dd-mm syntax of 'winter' / 'summer')", default = 'winter')
+	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels", default = 128)
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
 #
