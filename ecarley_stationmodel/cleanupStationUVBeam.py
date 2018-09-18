@@ -277,8 +277,11 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 
 	obs.date = obsTime
 	initTime = str(obs.previous_rising(sunObj))[:-5] + '00:00'
+	initTime = initTime[:-7] + str(int(initTime[-7]) + 1) + initTime[-6:]
 	endTime = str(obs.next_setting(ephem.Sun()))[:-5] + '00:00'
 
+	initTime = calendar.timegm( time.strptime(initTime, "%Y/%m/%d %H:%M:%S") )
+	endTime = calendar.timegm( time.strptime(endTime, "%Y/%m/%d %H:%M:%S") )
 	initTime = datetime.datetime.utcfromtimestamp(initTime)
 	endTime = datetime.datetime.utcfromtimestamp(endTime)
 
@@ -335,7 +338,7 @@ def mainCall(opts, args):
 		elif obsTime == 'winter': obsTime = '21-12'
 		else: print("Broken date statement, this message should be unreachable.")
 
-	obsTime = "2018-{0} 13:00:00".format(obsTime)
+	obsTime = "2017-{0} 13:00:00".format(obsTime) # Apparently ephem adds a year when you get the next sunrise.
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
@@ -388,7 +391,7 @@ def mainCall(opts, args):
 	while refTime < endTime:
 	
 		print("Starting Loop")
-		refTimeUtc = datetime.datetime.strftime("%Y/%m/%d %H:%M", refTime) #UTC (Use for Winter)
+		refTimeUtc = refTime #UTC (Use for Winter)
 		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
 		
 		obsLba.date = refTimeUtc
@@ -404,13 +407,13 @@ def mainCall(opts, args):
 		####################################
 		#       Plot IE613 and sun
 		sourceObjLBA=sunLbaObj
-		sourceObjLBA._ra=sunObj.ra
-		sourceObjLBA._dec=sunObj.dec
+		sourceObjLBA._ra=sunLbaObj.ra
+		sourceObjLBA._dec=sunLbaObj.dec
 		sourceObjLBA.compute(obsLba)
 
 		sourceObjHBA=sunHbaObj
-		sourceObjHBA._ra=sunObj.ra
-		sourceObjHBA._dec=sunObj.dec
+		sourceObjHBA._ra=sunHbaObj.ra
+		sourceObjHBA._dec=sunHbaObj.dec
 		sourceObjHBA.compute(obsHba)
 
 
@@ -422,8 +425,8 @@ def mainCall(opts, args):
 		#----------------------------------------------------
 		#    Define solar ephem object to get local alt-az     
 		#
-		alt = math.degrees(sunObj.alt)
-		az = math.degrees(sunObj.az) 
+		alt = math.degrees(sunLbaObj.alt)
+		az = math.degrees(sunLbaObj.az) 
 	
 		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
 	
@@ -509,7 +512,7 @@ def mainCall(opts, args):
 		ax.set_xlim3d(xbox_cen, xbox_cen+box_width)
 		ax.set_ylim3d(ybox_cen -box_width, ybox_cen)
 		ax.set_zlim3d(zbox_cen, zbox_cen+box_width)
-		plt.title('IE613 solar alt: %s$^{\circ}$, az: %s$^{\circ}$ @ %s IST' % (round(alt), round(az), time_utc))
+		plt.title('IE613 solar alt: %s$^{\circ}$, az: %s$^{\circ}$ @ %s IST' % (round(alt), round(az), refTimeUtc))
 		ax.set_xlabel('X (km)')
 		ax.set_ylabel('Y (km)')
 		ax.set_zlabel('Z (km)')
@@ -556,8 +559,7 @@ def mainCall(opts, args):
 		plt.close(fig)
 		print(image_num)
 		image_num+=1
-		refTime = refTime + 5.0*60.0
-		raw_input()
+		refTime = refTime + datetime.timedelta(minutes = 5.)
 	
 	
 		#ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
