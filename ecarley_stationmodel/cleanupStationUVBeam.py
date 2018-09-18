@@ -330,8 +330,57 @@ def plotConsts(xyz, planeConsts):
 	ySphereInit = 7e-3*np.outer(np.sin(u), np.sin(v)) 
 	zSphereInit = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
 
-	return x, y, z, [meanX, meanY, meanZ], zproj, xproj, yproj, [xSphereInit, ySphereInit, zSphereInit]
+	[meanHBAArr, [xHBAProj, yHBAProj, zLbaProj], sphereInit, planeConsts]
 
+	return x, y, z, [[meanX, meanY, meanZ], [xproj, yproj, zproj], [xSphereInit, ySphereInit, zSphereInit], planeConsts]
+
+def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, ax, antType = 'LBA'):
+	x, y, z = xyz
+	meanArr, projArr, sphereInit, planeConsts = plotConstants
+
+	meanX, meanY, meanZ = meanArr
+	xProj, yProj, zProf = projArr
+	xSphereInit, ySphereInit, zSphereInit = sphereInit
+	xplane, yplane, zplane = planeConsts
+
+	obs.date = refTimeUtc
+	sunObj.compute(obs)
+
+	to_sunx = [ meanX, sun_ecef[0]/1000.0 ]
+	to_suny = [ meanY, sun_ecef[1]/1000.0 ]
+	to_sunz = [ meanZ, sun_ecef[2]/1000.0 ]
+
+	xSphere = xSphereInit + to_sunx[1]
+	ySphere = ySphereInit + to_suny[1]
+	zSphere = zSphereInit + to_sunz[1]
+
+	to_sunzproj = np.full_like(to_sunz, zplane)
+	to_sunxproj = np.full_like(to_sunx, xplane)
+	to_sunyproj = np.full_like(to_suny, yplane)
+	
+	zSphereProj = np.full_like(zSphere, zplane)
+	xSphereProj = np.full_like(xSphere, xplane)
+	ySphereProj = np.full_like(ySphere, yplane)
+
+	if antType == 'LBA':
+		ax.plot(x, y, z, 'o', color = 'blue', label='LBAs (ECEF coords)', zorder=-1)
+		ax.plot_surface(xSphere, ySphere, zSphere, color='y', linewidth=0.01, zorder=1)
+	else:
+		ax.plot(x, y, z, 'o', color = 'salmon', label='HBAs (ECEF coords)', zorder=-1)
+
+	ax.plot(to_sunx, to_suny, to_sunz, color = 'g', zorder=2)
+
+	ax.plot(xProj, y, z, '.', color='lightgray', zorder=-3)
+	ax.plot(to_sunxproj, to_suny, o_sunz, color='lightgray', zorder=-3)
+	ax.plot_surface(xSphereProj, ySphere, zSphere, color='lightgray', linewidth=0.01, zorder=-3)
+
+	ax.plot(x, y, zProj, '.', color='lightgray', zorder=-3)
+	ax.plot(to_sunx, to_suny, to_sunzproj, color='lightgray', zorder=-3)
+	ax.plot_surface(xSphere, ySphere, zSphereProj, color='lightgray', linewidth=0.01, zorder=-3)
+
+	ax.plot(x, yProj, z, '.', color='lightgray', zorder=-3)
+	ax.plot(to_sunx, to_sunyproj, to_sunz, color='lightgray', zorder=-3)
+	ax.plot_surface(xSphere, ySphereProj, zSphere, color='lightgray', linewidth=0.01, zorder=-3)
 
 def mainCall(opts, args):
 
@@ -360,17 +409,17 @@ def mainCall(opts, args):
 	hbaRcuMode = opts.hba_rcu_mode
 	hbaLatLongEle = getLatLongElevation(antArrFile, 'HBA')
 
-	print("Parameter Initialisation Complete")
 	#------------------------------------------------
 	#     Define local geographic coords and time
 	#
 	uvwLBA, freqLBA, refTime, endTime, xyzLBA, obsLba, sunLbaObj = antProc(antFieldFile, antArrFile, lbaRcuMode, obsTime)
+	obs = obsLba
+	sunObj = sunLbaObj
+
 	uvwHBA, freqHBA, __, __, xyzHBA, obsHba, sunHbaObj = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, hbaAct)
 
 	image_num = 0
 	plt.ion()
-	
-	print("Coords / time processed")
 	#----------------------------------------------------
 	#      Get IE613 antenna positions and projections	
 	zplane = 5.0769e3
@@ -378,15 +427,9 @@ def mainCall(opts, args):
 	yplane = -5.28875e2
 	planeConsts = [zplane, xplane, yplane]
 
-	xLBA, yLBA, zLBA, meanLbaArr, zLbaProj, xLbaProj, yLbaProj, sphereInit = plotConsts(xyzLBA, planeConsts)
-	xHBA, yHBA, zHBA, meanHbaArr, zHbaProj, xHbaProj, yHbaProj, __ = plotConsts(xyzHBA, planeConsts)
 
-	meanLbaX, meanLbaY, meanLbaZ = meanLbaArr
-	meanHbaX, meanHbaY, meanHbaZ = meanHbaArr
-
-	xSphereInit, ySphereInit, zSphereInit = sphereInit
-	
-	print("Projections Processed")
+	xLBA, yLBA, zLBA, plotConstantsLBA = plotConsts(xyzLBA, planeConsts)
+	xHBA, yHBA, zHBA, plotConstantsHBA = plotConsts(xyzHBA, planeConsts)
 	#------------------------------------------
 	#       For the instrument beam image
 	px=[pixels,pixels]
@@ -403,120 +446,43 @@ def mainCall(opts, args):
 
 		refTimeUtc = refTime #UTC (Use for Winter)
 		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
-		
+		obs.date = refTimeUtc
+		sunObj.compute(obs)
 		print(refTimeUtc, refTimeIst)
-		#if pltLba:
-		#	 = processLba()
 
-		#if pltHba:
-		#	 = processHba()
-
-		obsLba.date = refTimeUtc
-		obsHba.date = refTimeUtc
-
-		sunLbaObj.compute(obsLba)
-		sunHbaObj.compute(obsHba)
-		print("Sun Obtained")
 		
 		#TODO: Progamatically adjust
 		fig = plt.figure(figsize=(18, 10))
 	
 		####################################
 		#       Plot IE613 and sun
-		sourceObjLBA=sunLbaObj
-		sourceObjLBA._ra=sunLbaObj.ra
-		sourceObjLBA._dec=sunLbaObj.dec
-		sourceObjLBA.compute(obsLba)
-
-		sourceObjHBA=sunHbaObj
-		sourceObjHBA._ra=sunHbaObj.ra
-		sourceObjHBA._dec=sunHbaObj.dec
-		sourceObjHBA.compute(obsHba)
 
 
 		#TODO: Programatically adjust
 		ax = plt.subplot2grid((2, 2), (0, 0), rowspan=2, projection='3d')
 
-		print("Plotted for IE613")
-
 		#----------------------------------------------------
 		#    Define solar ephem object to get local alt-az     
 		#
-		alt = math.degrees(sunLbaObj.alt)
-		az = math.degrees(sunLbaObj.az) 
+		alt = math.degrees(sunObj.alt)
+		az = math.degrees(sunObj.az) 
 	
 		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
 	
 		#TODO: Abstract
-		lba_to_sunx = [ meanLbaX, sun_ecef[0]/1000.0 ]
-		lba_to_suny = [ meanLbaY, sun_ecef[1]/1000.0 ]
-		lba_to_sunz = [ meanLbaZ, sun_ecef[2]/1000.0 ]
-
-		hba_to_sunx = [ meanHbaX, sun_ecef[0]/1000.0 ]
-		hba_to_suny = [ meanHbaY, sun_ecef[1]/1000.0 ]
-		hba_to_sunz = [ meanHbaZ, sun_ecef[2]/1000.0 ]
-
-		xSphereLBA = xSphereInit + lba_to_sunx[1]
-		ySphereLBA = ySphereInit + lba_to_suny[1]
-		zSphereLBA = zSphereInit + lba_to_sunz[1]
-
-		xSphereHBA = xSphereInit + hba_to_sunx[1]
-		ySphereHBA = ySphereInit + hba_to_suny[1]
-		zSphereHBA = zSphereInit + hba_to_sunz[1]
 	
 	
 		#----------------------------------------- 
 		#        Plot and format
 		#TODO: Abstract
-		ax.plot(xLBA, yLBA, zLBA, 'bo', label='LBAs (ECEF coords)', zorder=-1)
-		ax.plot(xHBA, yHBA, zHBA, 'o', color='salmon', label='HBAs (ECEF coords)', zorder=-1)
 
-		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereLBA, color='y', linewidth=0.01, zorder=1)
-		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunz, 'g', zorder=2)
-
-		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereHBA, color='y', linewidth=0.01, zorder=1)
-		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunz, 'g', zorder=2)
 		print("Station Plotted")
 		#----------------------------------------- 
 		#    Plot projections on the XYZ planes
 		#
-		lba_to_sunzproj = np.full_like(lba_to_sunz, zplane)
-		lba_to_sunxproj = np.full_like(lba_to_sunx, xplane)
-		lba_to_sunyproj = np.full_like(lba_to_suny, yplane)
 
-		hba_to_sunzproj = np.full_like(hba_to_sunz, zplane)
-		hba_to_sunxproj = np.full_like(hba_to_sunx, xplane)
-		hba_to_sunyproj = np.full_like(hba_to_suny, yplane)
-	
-		zSphereProjLBA = np.full_like(zSphereLBA, zplane)
-		xSphereProjLBA = np.full_like(xSphereLBA, xplane)
-		ySphereProjLBA = np.full_like(ySphereLBA, yplane)
-
-		zSphereProjHBA = np.full_like(zSphereHBA, zplane)
-		xSphereProjHBA = np.full_like(xSphereHBA, xplane)
-		ySphereProjHBA = np.full_like(ySphereHBA, yplane)
-
-
-		ax.plot(xLbaProj, yLBA, zLBA, '.', color='lightgray', zorder=-3)
-		ax.plot(xHbaProj, yHBA, zHBA, '.', color='lightgray', zorder=-3)
-		ax.plot(lba_to_sunxproj, lba_to_suny, lba_to_sunz, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereProjLBA, ySphereLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-3)
-		ax.plot(hba_to_sunxproj, hba_to_suny, hba_to_sunz, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereProjHBA, ySphereHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-3)
-
-		ax.plot(xLBA, yLBA, zLbaProj, '.', color='lightgray', zorder=-3)
-		ax.plot(xHBA, yHBA, zHbaProj, '.', color='lightgray', zorder=-3)
-		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunzproj, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereProjLBA, color='lightgray', linewidth=0.01, zorder=-3)
-		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunzproj, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereProjHBA, color='lightgray', linewidth=0.01, zorder=-3)
-	
-		ax.plot(xLBA, yLbaProj, zLBA, '.', color='lightgray', zorder=-3)
-		ax.plot(xHBA, yHbaProj, zHBA, '.', color='lightgray', zorder=-3)
-		ax.plot(lba_to_sunx, lba_to_sunyproj, lba_to_sunz, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereLBA, ySphereProjLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-3)
-		ax.plot(hba_to_sunx, hba_to_sunyproj, hba_to_sunz, color='lightgray', zorder=-3)
-		ax.plot_surface(xSphereHBA, ySphereProjHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-3)
+		processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstants, ax, antType = 'LBA')
+		processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstants, ax, antType = 'HBA')
 
 		print("Projecions plotted")
 	
@@ -541,6 +507,10 @@ def mainCall(opts, args):
 	
 		####################################
 		#       Plot UV coverage
+		sourceObj=sunObj
+		sourceObj._ra=sunObj.ra
+		sourceObj._dec=sunObj.dec
+		sourceObj.compute(obs)
 		uvw=xyz2uvw(xyzLBA, sourceObjLBA, obsLba, freqLBA[0])
 		U=uvw[:,:,0]
 		V=uvw[:,:,1]
