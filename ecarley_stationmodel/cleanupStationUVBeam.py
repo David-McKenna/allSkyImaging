@@ -110,7 +110,7 @@ def dftImage(d,uvw,px,res,mask=False):
 	im = np.abs(im)
 	return im
 
-def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False):
+def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	"""return a FFT image"""
 	start_time = time.time()
 	nants=uvw.shape[0]
@@ -148,13 +148,20 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False):
 		offsets = res - (sampleCoord % res)[..., np.newaxis]
 		sampleCache += offsets
 		
-		# Gaussian
-		pointSamples = gaussLambda(sampleCache)
+		if method == 'gaus':
+			pointSamples = gaussLambda(sampleCache)
 		
-		# Rectangular
-		#print(np.argwhere(sampleCache.reshape(1, 2, -1) == 0))
-		#pointSamples = np.zeros([81])
-		#pointSamples[30] = 1.
+		elif method == 'rect':
+			pointSamples = np.zeros([81])
+			pointSamples[30] = 1.
+
+		elif method == 'rectgaus':
+			pointSamples = np.zeros([81])
+			pointSamples[30] = gaussLambda(offsets)
+
+		else:
+			print("Unknown method! Falling back to Gaussian.")
+			pointSamples = gaussLambda(sampleCache)
 
 		sampleIndex = ((sampleCoord[..., np.newaxis] + offsets + sampleCache.reshape(1, 2, -1)) / (res) + centralRef).astype(int)
 
@@ -328,7 +335,9 @@ def plotConsts(xyz, planeConsts):
 
 def mainCall(opts, args):
 
-	fftBool = opts.fftBool
+	fftType = opts.fftType
+	print(fftType)
+	assert(fftType in [None, 'gaus', 'rect', 'rectgaus'])
 	pltLba = opts.LBA
 	pltHba = opts.HBA
 	obsTime = opts.time
@@ -488,26 +497,26 @@ def mainCall(opts, args):
 		ySphereProjHBA = np.full_like(ySphereHBA, yplane)
 
 
-		ax.plot(xLbaProj, yLBA, zLBA, '.', color='lightgray', zorder=-2)
-		ax.plot(xHbaProj, yHBA, zHBA, '.', color='lightgray', zorder=-2)
-		ax.plot(lba_to_sunxproj, lba_to_suny, lba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereProjLBA, ySphereLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-2)
-		ax.plot(hba_to_sunxproj, hba_to_suny, hba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereProjHBA, ySphereHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(xLbaProj, yLBA, zLBA, '.', color='lightgray', zorder=-3)
+		ax.plot(xHbaProj, yHBA, zHBA, '.', color='lightgray', zorder=-3)
+		ax.plot(lba_to_sunxproj, lba_to_suny, lba_to_sunz, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereProjLBA, ySphereLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-3)
+		ax.plot(hba_to_sunxproj, hba_to_suny, hba_to_sunz, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereProjHBA, ySphereHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-3)
 
-		ax.plot(xLBA, yLBA, zLbaProj, '.', color='lightgray', zorder=-2)
-		ax.plot(xHBA, yHBA, zHbaProj, '.', color='lightgray', zorder=-2)
-		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunzproj, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereProjLBA, color='lightgray', linewidth=0.01, zorder=-2)
-		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunzproj, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereProjHBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(xLBA, yLBA, zLbaProj, '.', color='lightgray', zorder=-3)
+		ax.plot(xHBA, yHBA, zHbaProj, '.', color='lightgray', zorder=-3)
+		ax.plot(lba_to_sunx, lba_to_suny, lba_to_sunzproj, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereLBA, ySphereLBA, zSphereProjLBA, color='lightgray', linewidth=0.01, zorder=-3)
+		ax.plot(hba_to_sunx, hba_to_suny, hba_to_sunzproj, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereHBA, ySphereHBA, zSphereProjHBA, color='lightgray', linewidth=0.01, zorder=-3)
 	
-		ax.plot(xLBA, yLbaProj, zLBA, '.', color='lightgray', zorder=-2)
-		ax.plot(xHBA, yHbaProj, zHBA, '.', color='lightgray', zorder=-2)
-		ax.plot(lba_to_sunx, lba_to_sunyproj, lba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereLBA, ySphereProjLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-2)
-		ax.plot(hba_to_sunx, hba_to_sunyproj, hba_to_sunz, color='lightgray', zorder=-2)
-		ax.plot_surface(xSphereHBA, ySphereProjHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot(xLBA, yLbaProj, zLBA, '.', color='lightgray', zorder=-3)
+		ax.plot(xHBA, yHbaProj, zHBA, '.', color='lightgray', zorder=-3)
+		ax.plot(lba_to_sunx, lba_to_sunyproj, lba_to_sunz, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereLBA, ySphereProjLBA, zSphereLBA, color='lightgray', linewidth=0.01, zorder=-3)
+		ax.plot(hba_to_sunx, hba_to_sunyproj, hba_to_sunz, color='lightgray', zorder=-3)
+		ax.plot_surface(xSphereHBA, ySphereProjHBA, zSphereHBA, color='lightgray', linewidth=0.01, zorder=-3)
 
 		print("Projecions plotted")
 	
@@ -547,7 +556,11 @@ def mainCall(opts, args):
 		####################################
 		#       Plot instrument beam
 		ax1 = plt.subplot2grid((2, 2), (1, 1))
-		img = dftImage(dummy, uvw, px, res, mask=True)
+
+		if fftType is None:
+			img = dftImage(dummy, uvw, px, res, mask=True)
+		else:
+			img = fftImage(dummy, uvw, px, res, mask = True, method = fftType)
 		img=img.real
 		img=np.log(img)
 	
@@ -586,7 +599,7 @@ if __name__ == '__main__':
 	o.add_option('--lba_rcu_mode', dest = 'lba_rcu_mode', help = "LBA RCU Mode considered for processing", default = 3)
 	o.add_option('--hba_rcu_mode', dest = 'hba_rcu_mode', help = "HBA RCU Mode considered for processing", default = 5)
 	
-	o.add_option('-f', '--fft', action = 'store_true', dest = 'fftBool', help = "Perform beam synthesis by FFT/gridding method.", default = False)
+	o.add_option('-f', '--fft', dest = 'fftType', help = "Perform beam synthesis by FFT/gridding with the (rect)angular or (gaus)sian method for windowing.", default = None)
 	
 	o.add_option('-l', '--lba', action = 'store_true', dest = 'LBA', help = "Plot LBA UV/beam in output image.", default = True)
 	o.add_option('-c', '--hba', action = 'store_true', dest = 'HBA', help = "Plot HBA UV/beam in output image.", default = False)
