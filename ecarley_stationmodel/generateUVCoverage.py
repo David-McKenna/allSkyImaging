@@ -14,6 +14,9 @@ import datetime
 import calendar
 import pytz
 
+import copy
+import multiprocessing as mp
+
 global rcuInfo
 rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},            #0
 			{'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #1
@@ -394,7 +397,9 @@ def mainCall(opts, args):
 	pltHBA = opts.HBA
 	obsTime = opts.time
 	pixels = opts.pixels
+	timeStep = opts.ts * 60.
 	outputFolder = opts.output_folder
+	enableMp = opts.mp
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
@@ -460,52 +465,48 @@ def mainCall(opts, args):
 	if not os.path.exists(outputFolder):
 		os.mkdir(outputFolder)
 
-	while refTime < endTime:
-	
-		print("Starting Loop")
+	if enableMp:
+		processes = mp.cpu_count() - 1
+		mpPool = mp.Pool(processes = processes)
 
+	idx = 0
+	while refTime <= endTime:
+		print("Starting Loop")
+		print(obs.date)
 		refTimeUtc = refTime #UTC (Use for Winter)
 		refTimeIst = pytz.timezone('UTC').localize(refTimeUtc).astimezone(pytz.timezone('Europe/Dublin'))
 		obs.date = refTimeUtc
 		sunObj.compute(obs)
 		print(refTimeUtc, refTimeIst)
-
-		
-		#TODO: Progamatically adjust
-		fig = plt.figure(figsize=(18, 10))
 	
+			
+		#TODO: Progamatically adjust
+		fig = plt.figure(idx, figsize=(18, 10))
+		
 		####################################
 		#       Plot IE613 and sun
-
-
+	
+	
 		#TODO: Programatically adjust
 		ax = plt.subplot2grid((2, 2), (0, 0), rowspan=2, projection='3d')
-
+	
 		#----------------------------------------------------
 		#    Define solar ephem object to get local alt-az     
 		#
 		alt = math.degrees(sunObj.alt)
 		az = math.degrees(sunObj.az) 
-	
+		
 		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
 	
-		#TODO: Abstract
-	
-	
-		#----------------------------------------- 
-		#        Plot and format
-		#TODO: Abstract
-
-		print("Station Plotted")
 		#----------------------------------------- 
 		#    Plot projections on the XYZ planes
 		#
-
+	
 		ax = processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstantsLBA, sun_ecef, ax, antType = 'LBA', plotSuns = True) # Plot suns first to prevent z-buffer issues
 		ax = processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstantsHBA, sun_ecef, ax, antType = 'HBA', plotSuns = False) 
-
-		print("Projecions plotted")
 	
+		print("Projecions plotted")
+		
 		#----------------------------------------- 
 		#        Plot format
 		#
@@ -524,7 +525,7 @@ def mainCall(opts, args):
 		#ax.legend()
 		ax.view_init(elev=16, azim=-55.0)
 		print("Plot reoritentatied")
-	
+
 		####################################
 		#       Plot UV coverage
 		sourceObj=sunObj
@@ -542,39 +543,50 @@ def mainCall(opts, args):
 		plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
 		plt.axis([-10, 10, -10, 10])
 		print("UVW Plotted")
-	
-		####################################
-		#       Plot instrument beam
-		ax1 = plt.subplot2grid((2, 2), (1, 1))
 
-		if fftType is None:
-			img = dftImage(dummy, uvw, px, res, mask=True)
+		if enableMp:
+			mpPool.apply_async(singleTimeStep, args = ([idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType]))
 		else:
-			img = fftImage(dummy, uvw, px, res, mask = True, method = fftType)
-		img=img.real
-		img=np.log(img)
+			singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType)
+
+		refTime += datetime.timedelta(seconds = timeStep)
+		idx += 1
+
+	mp.close()
+	mp.join()
 	
-		ax1 = plt.subplot2grid((2, 2), (1, 1))
-		im = plt.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
-		plt.title('IE613 %s MHz LBA station beam. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
-		plt.gca().yaxis.set_major_locator(plt.NullLocator())
-		plt.gca().xaxis.set_major_locator(plt.NullLocator())
+def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType):
 	
-		divider = make_axes_locatable(ax1)
-		cax = divider.append_axes("right", size="2%", pad=0.05)
-		cbar = plt.colorbar(im, cax=cax)
-		cbar.set_label('log$_{10}$(I$_{beam}$)')
-		print("Beam Plotted")
-		plt.show( )
-		plt.savefig(outputFolder + '/station_uv_beam_'+str(format(image_num, '03'))+'.png')   # save the figure to file
-		#pdb.set_trace()    
-		plt.close(fig)
-		print(image_num)
-		image_num+=1
-		refTime = refTime + datetime.timedelta(minutes = 5.)
+	####################################
+	#       Plot instrument beam
+	if fftType is None:
+		img = dftImage(dummy, uvw, px, res, mask=True)
+	else:
+		img = fftImage(dummy, uvw, px, res, mask = True, method = fftType)
+	img=img.real
+	img=np.log(img)
+	
+	ax1 = plt.subplot2grid((2, 2), (1, 1), fig = fig)
+
+	ax1 = fig.gca()
+
+	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+	ax1.set_title('IE613 %s MHz LBA station beam. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
+	ax1.yaxis.set_major_locator(plt.NullLocator())
+	ax1.xaxis.set_major_locator(plt.NullLocator())
+	
+	divider = make_axes_locatable(ax1)
+	cax = divider.append_axes("right", size="2%", pad=0.05)
+	cbar = plt.colorbar(im, cax=cax)
+	cbar.set_label('log$_{10}$(I$_{beam}$)')
+	print("Beam Plotted")
+	fig.show( )
+	fig.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
+
+	plt.close(idx)
 	
 	
-		#ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
+#ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
 	
 #########################################################   
 
@@ -598,6 +610,8 @@ if __name__ == '__main__':
 	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in mm/dd syntax, or 'winter' / 'summer' for solstaces)", default = 'winter')
 	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels", default = 128)
 	o.add_option('-o', '--output_folder', dest = 'output_folder', help = "Where to put the output files (can be auto generated)", default = None)
+	o.add_option('-s', '--time_step', dest = 'ts', help = "Time (in minutes) between sampling steps.", default = 5.)
+	o.add_option('-m', '--multi-thread', dest = 'mp', action = 'store_true', help = "Using this flag will enable multithreading with n-1 of available CPU cores being used.", default = False)
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
 #
