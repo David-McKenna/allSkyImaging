@@ -18,7 +18,7 @@ import copy
 import multiprocessing as mp
 
 global rcuInfo
-rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},            #0
+rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 0},            #0
 			{'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #1
 			{'mode':'LBL_HPF30MHZ', 'rcuID':2, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #2
 			{'mode':'LBH_HPF10MHZ', 'rcuID':3, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #3
@@ -107,7 +107,7 @@ def dftImage(d,uvw,px,res,mask=False):
 				rad=(((k-mid_k)*res)**2 + ((l-mid_l)*res)**2)**.5
 				if rad > mid_k*res: im[k,l]=0
 				#else: im[k,l]=dft2(d,(k-mid_k),(l-mid_l),u,v)
-	print time.time()-start_time
+	print("DFT Image ended after {0}".format(time.time() - start_time))
 
 	# Debug after removing (0,0) UV elements
 	im = np.abs(im)
@@ -194,7 +194,7 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 		im = im[~np.all(im == 0, axis = 0)]
 		im = im[:, ~np.all(im.T == 0, axis = 1)]
 
-	print("DFT Image ended after {0}".format(time.time() - start_time))
+	print("FFT Image ended after {0}".format(time.time() - start_time))
 	return im
 
 def read_ant_xyz(antFieldFile, rcumode, station):
@@ -388,6 +388,66 @@ def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, sun_ecef, ax, antTy
 
 	return ax
 
+def processUVCoverage(sunObj, obs, xyz, sourceObj, obsArr, freq, colIdx, subplotTuple, antType):
+
+	sourceObj=sunObj
+	sourceObj._ra=sunObj.ra
+	sourceObj._dec=sunObj.dec
+	sourceObj.compute(obs)
+	uvw=xyz2uvw(xyz, sourceObj, obs, freq[0])
+	U=uvw[:,:,0]
+	V=uvw[:,:,1]
+
+	print(subplotTuple, colIdx)
+	ax0 = plt.subplot2grid(subplotTuple, (0, colIdx))
+	ax0.set_aspect('equal')
+	plt.plot(U, V, '.')
+	plt.xlabel('u ($\lambda$)')
+	plt.ylabel('v ($\lambda$)')
+	plt.title('UV-coverage at {0} MHz for IE613 {1}s. Source: Sun'.format(round(freq[0]/1e6, 1), antType))
+	plt.axis([-10, 10, -10, 10])
+	print("UVW Plotted")
+
+	return uvw
+
+def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar):
+	
+	####################################
+	#       Plot instrument beam
+	if fftType is None:
+		img = dftImage(dummy, uvw, px, res, mask = maskVar)
+	else:
+		img = fftImage(dummy, uvw, px, res, mask = maskVar, method = fftType)
+
+	img=img.real
+	img=np.log(img)
+	
+	print(subplotTuple, colIdx)
+	ax1 = plt.subplot2grid(subplotTuple, (1, colIdx), fig = fig)
+
+	ax1 = fig.gca()
+
+	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+	ax1.set_title('IE613 {0} MHz {1} station beam. Source: Sun'.format((round(freqLBA[0]/1e6, 1)), antType))
+	ax1.yaxis.set_major_locator(plt.NullLocator())
+	ax1.xaxis.set_major_locator(plt.NullLocator())
+	
+	divider = make_axes_locatable(ax1)
+	cax = divider.append_axes("right", size="2%", pad=0.05)
+	cbar = plt.colorbar(im, cax=cax)
+	cbar.set_label('log$_{10}$(I$_{beam}$)')
+	print("Beam Plotted")
+	fig.show( )
+	fig.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
+
+	plt.close(idx)
+	
+def mpCheckAndCallFT(enableMp, idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar):
+	if enableMp:
+		mpPool.apply_async(singleTimeStep, args = ([idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar]))
+	else:
+		singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar)
+
 def mainCall(opts, args):
 
 	fftType = opts.fftType
@@ -400,6 +460,7 @@ def mainCall(opts, args):
 	timeStep = opts.ts * 60.
 	outputFolder = opts.output_folder
 	enableMp = opts.mp
+	maskVar = opts.mask
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
@@ -481,35 +542,25 @@ def mainCall(opts, args):
 	
 			
 		#TODO: Progamatically adjust
-		fig = plt.figure(idx, figsize=(18, 10))
+		uvPlots = sum([pltHBA, pltLBA])
+		fig = plt.figure(idx, figsize=(10 + uvPlots * 8, 10))
 		
 		####################################
 		#       Plot IE613 and sun
+		subplotTuple = (2, 1 + uvPlots)
+		ax = plt.subplot2grid(subplotTuple, (0, 0), rowspan= 2, projection='3d', fig = fig)
 	
-	
-		#TODO: Programatically adjust
-		ax = plt.subplot2grid((2, 2), (0, 0), rowspan=2, projection='3d')
-	
-		#----------------------------------------------------
-		#    Define solar ephem object to get local alt-az     
-		#
+
 		alt = math.degrees(sunObj.alt)
 		az = math.degrees(sunObj.az) 
 		
 		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
-	
-		#----------------------------------------- 
-		#    Plot projections on the XYZ planes
-		#
-	
+
 		ax = processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstantsLBA, sun_ecef, ax, antType = 'LBA', plotSuns = True) # Plot suns first to prevent z-buffer issues
 		ax = processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstantsHBA, sun_ecef, ax, antType = 'HBA', plotSuns = False) 
 	
 		print("Projecions plotted")
-		
-		#----------------------------------------- 
-		#        Plot format
-		#
+
 		box_width = 0.2
 		xbox_cen = 3.80155e3
 		ybox_cen = -5.2889e2
@@ -522,69 +573,28 @@ def mainCall(opts, args):
 		ax.set_ylabel('Y (km)')
 		ax.set_zlabel('Z (km)')
 		plt.gca().set_position([0, 0.0, 0.52, 1.0])
-		#ax.legend()
 		ax.view_init(elev=16, azim=-55.0)
 		print("Plot reoritentatied")
 
 		####################################
-		#       Plot UV coverage
-		sourceObj=sunObj
-		sourceObj._ra=sunObj.ra
-		sourceObj._dec=sunObj.dec
-		sourceObj.compute(obs)
-		uvw=xyz2uvw(xyzLBA, sourceObjLBA, obsLBA, freqLBA[0])
-		U=uvw[:,:,0]
-		V=uvw[:,:,1]
-		ax0 = plt.subplot2grid((2, 2), (0, 1))
-		ax0.set_aspect('equal')
-		plt.plot(U, V, '.')
-		plt.xlabel('u ($\lambda$)')
-		plt.ylabel('v ($\lambda$)')
-		plt.title('UV-coverage at %s MHz for IE613 LBAs. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
-		plt.axis([-10, 10, -10, 10])
-		print("UVW Plotted")
-
-		if enableMp:
-			mpPool.apply_async(singleTimeStep, args = ([idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType]))
-		else:
-			singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType)
+		#       Plot UV coverage, beam
+		colIdx = 1
+		if pltLBA:
+			uvwLBA = processUVCoverage(sunLBAObj, obs, xyzLBA, sourceObjLBA, obsLBA, freqLBA, colIdx, subplotTuple, 'LBA')
+			mpCheckAndCallFT(enableMp, idx, fig, dummy, uvwLBA, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, 'LBA', maskVar)
+			colIdx += 1
+		if pltHBA:
+			uvwHBA = processUVCoverage(sunHBAObj, obs, xyzHBA, sourceObjHBA, obsHBA, freqHBA, colIdx, subplotTuple, 'HBA')
+			mpCheckAndCallFT(enableMp, idx, fig, dummy, uvwHBA, px, res, pixels, freqHBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA', maskVar)
+			colIdx += 1
 
 		refTime += datetime.timedelta(seconds = timeStep)
 		idx += 1
 
-	mp.close()
-	mp.join()
-	
-def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType):
-	
-	####################################
-	#       Plot instrument beam
-	if fftType is None:
-		img = dftImage(dummy, uvw, px, res, mask=True)
-	else:
-		img = fftImage(dummy, uvw, px, res, mask = True, method = fftType)
-	img=img.real
-	img=np.log(img)
-	
-	ax1 = plt.subplot2grid((2, 2), (1, 1), fig = fig)
-
-	ax1 = fig.gca()
-
-	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
-	ax1.set_title('IE613 %s MHz LBA station beam. Source: Sun' % (round(freqLBA[0]/1e6, 1)))
-	ax1.yaxis.set_major_locator(plt.NullLocator())
-	ax1.xaxis.set_major_locator(plt.NullLocator())
-	
-	divider = make_axes_locatable(ax1)
-	cax = divider.append_axes("right", size="2%", pad=0.05)
-	cbar = plt.colorbar(im, cax=cax)
-	cbar.set_label('log$_{10}$(I$_{beam}$)')
-	print("Beam Plotted")
-	fig.show( )
-	fig.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
-
-	plt.close(idx)
-	
+	# Cleanup if we used mp
+	if enableMp:
+		mpPool.close()
+		mpPool.join()
 	
 #ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
 	
@@ -612,6 +622,7 @@ if __name__ == '__main__':
 	o.add_option('-o', '--output_folder', dest = 'output_folder', help = "Where to put the output files (can be auto generated)", default = None)
 	o.add_option('-s', '--time_step', dest = 'ts', help = "Time (in minutes) between sampling steps.", default = 5.)
 	o.add_option('-m', '--multi-thread', dest = 'mp', action = 'store_true', help = "Using this flag will enable multithreading with n-1 of available CPU cores being used.", default = False)
+	o.add_option('-r', '--mask_radius', dest = 'mask', action = 'store_true', help = "Limit the output beam shape to a circle (TODO: Inputable radius)", default = False)
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
 #
