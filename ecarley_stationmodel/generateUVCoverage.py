@@ -280,6 +280,7 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 
 	obs.lon, obs.lat = math.radians(antLatLongEle[0]), math.radians(antLatLongEle[1])
 	obs.elevation = antLatLongEle[2]
+	obs.horizon = 0.4 # Set horizon to 24 degrees so we don't sample the udnerside of the array
 	obs.epoch=2000.0
 
 	obs.date = obsTime
@@ -308,7 +309,7 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 	else:
 		return #TODO
 
-	return uvw, freq, initTime, endTime, xyz, obs, sunObj
+	return uvw, freq, initTime, endTime, xyz, obs, sunObj, sourceObj
 
 def plotConsts(xyz, planeConsts):
 	x = np.array([coords[0] / 1e3 for coords in xyz])
@@ -319,9 +320,9 @@ def plotConsts(xyz, planeConsts):
 	meanY = np.mean(y)
 	meanZ = np.mean(z)
 
-	zproj = np.full_like(z, planeConsts[0])
-	xproj = np.full_like(x, planeConsts[1])
-	yproj = np.full_like(y, planeConsts[2])
+	xproj = np.full_like(x, planeConsts[0])
+	yproj = np.full_like(y, planeConsts[1])
+	zproj = np.full_like(z, planeConsts[2])
 
 	u = np.linspace(0, 2. * np.pi, 200)
 	v = np.linspace(0, np.pi, 200)
@@ -330,16 +331,14 @@ def plotConsts(xyz, planeConsts):
 	ySphereInit = 7e-3*np.outer(np.sin(u), np.sin(v)) 
 	zSphereInit = 7e-3*np.outer(np.ones(np.size(u)), np.cos(v))
 
-	[meanHBAArr, [xHBAProj, yHBAProj, zLbaProj], sphereInit, planeConsts]
-
 	return x, y, z, [[meanX, meanY, meanZ], [xproj, yproj, zproj], [xSphereInit, ySphereInit, zSphereInit], planeConsts]
 
-def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, ax, antType = 'LBA'):
+def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, sun_ecef, ax, antType = 'LBA', plotSuns = True):
 	x, y, z = xyz
 	meanArr, projArr, sphereInit, planeConsts = plotConstants
 
 	meanX, meanY, meanZ = meanArr
-	xProj, yProj, zProf = projArr
+	xProj, yProj, zProj = projArr
 	xSphereInit, ySphereInit, zSphereInit = sphereInit
 	xplane, yplane, zplane = planeConsts
 
@@ -362,46 +361,44 @@ def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, ax, antType = 'LBA'
 	xSphereProj = np.full_like(xSphere, xplane)
 	ySphereProj = np.full_like(ySphere, yplane)
 
+	if plotSuns:
+		ax.plot_surface(xSphere, ySphere, zSphere, color='y', linewidth=0.01, zorder=-2)
+		ax.plot_surface(xSphereProj, ySphere, zSphere, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot_surface(xSphere, ySphere, zSphereProj, color='lightgray', linewidth=0.01, zorder=-2)
+		ax.plot_surface(xSphere, ySphereProj, zSphere, color='lightgray', linewidth=0.01, zorder=-2)
+
 	if antType == 'LBA':
 		ax.plot(x, y, z, 'o', color = 'blue', label='LBAs (ECEF coords)', zorder=-1)
-		ax.plot_surface(xSphere, ySphere, zSphere, color='y', linewidth=0.01, zorder=1)
 	else:
 		ax.plot(x, y, z, 'o', color = 'salmon', label='HBAs (ECEF coords)', zorder=-1)
 
 	ax.plot(to_sunx, to_suny, to_sunz, color = 'g', zorder=2)
 
-	ax.plot(xProj, y, z, '.', color='lightgray', zorder=-3)
-	ax.plot(to_sunxproj, to_suny, o_sunz, color='lightgray', zorder=-3)
-	ax.plot_surface(xSphereProj, ySphere, zSphere, color='lightgray', linewidth=0.01, zorder=-3)
+	ax.plot(xProj, y, z, '.', color='lightgray', zorder=-2)
+	ax.plot(to_sunxproj, to_suny, to_sunz, color='lightgray', zorder=-2)
 
-	ax.plot(x, y, zProj, '.', color='lightgray', zorder=-3)
-	ax.plot(to_sunx, to_suny, to_sunzproj, color='lightgray', zorder=-3)
-	ax.plot_surface(xSphere, ySphere, zSphereProj, color='lightgray', linewidth=0.01, zorder=-3)
+	ax.plot(x, y, zProj, '.', color='lightgray', zorder=-2)
+	ax.plot(to_sunx, to_suny, to_sunzproj, color='lightgray', zorder=-2)
 
-	ax.plot(x, yProj, z, '.', color='lightgray', zorder=-3)
-	ax.plot(to_sunx, to_sunyproj, to_sunz, color='lightgray', zorder=-3)
-	ax.plot_surface(xSphere, ySphereProj, zSphere, color='lightgray', linewidth=0.01, zorder=-3)
+	ax.plot(x, yProj, z, '.', color='lightgray', zorder=-2)
+	ax.plot(to_sunx, to_sunyproj, to_sunz, color='lightgray', zorder=-2)
+
+	return ax
 
 def mainCall(opts, args):
 
 	fftType = opts.fftType
 	print(fftType)
 	assert(fftType in [None, 'gaus', 'rect', 'rectgaus'])
-	pltLba = opts.LBA
-	pltHba = opts.HBA
+	pltLBA = opts.LBA
+	pltHBA = opts.HBA
 	obsTime = opts.time
 	pixels = opts.pixels
-
-	if obsTime in ['summer', 'winter']:
-		if obsTime == 'summer': obsTime = '06/21'
-		elif obsTime == 'winter': obsTime = '12/21'
-		else: print("Broken date statement, this message should be unreachable.")
-	obsTime = "2018/{0} 13:00:00".format(obsTime)
+	outputFolder = opts.output_folder
 
 	antFieldFile, antArrFile = initialiseLocalFiles(args)
 	print("Files detected or acquired")
 
-	# TODO: move more logic into here, after cleanup
 	lbaRcuMode = opts.lba_rcu_mode
 	lbaLatLongEle = getLatLongElevation(antArrFile, 'LBA')
 
@@ -409,14 +406,37 @@ def mainCall(opts, args):
 	hbaRcuMode = opts.hba_rcu_mode
 	hbaLatLongEle = getLatLongElevation(antArrFile, 'HBA')
 
+	if outputFolder is None:
+		outputFolder = 'IE613_station_uv_converage'
+		if pltLBA:
+			outputFolder += '_LBA_{0}'.format(lbaRcuMode)
+		if pltHBA:
+			outputFolder += '_HBA_{0}_{1}'.format(hbaRcuMode, hbaAct)
+			
+		outputFolder += '_' + obsTime
+
+		if fftType is not None:
+			outputFolder += '_FFT_{0}'.format(fftType)
+		else:
+			outputFolder += '_DFT'
+
+
+	if obsTime in ['summer', 'winter']:
+		if obsTime == 'summer': obsTime = '06/21'
+		elif obsTime == 'winter': obsTime = '12/21'
+		else: print("Broken date statement, this message should be unreachable.")
+	obsTime = "2018/{0} 13:00:00".format(obsTime)
+
+	# TODO: move more logic into here, after cleanup
+
 	#------------------------------------------------
 	#     Define local geographic coords and time
 	#
-	uvwLBA, freqLBA, refTime, endTime, xyzLBA, obsLba, sunLbaObj = antProc(antFieldFile, antArrFile, lbaRcuMode, obsTime)
-	obs = obsLba
-	sunObj = sunLbaObj
+	uvwLBA, freqLBA, refTime, endTime, xyzLBA, obsLBA, sunLBAObj, sourceObjLBA = antProc(antFieldFile, antArrFile, lbaRcuMode, obsTime)
+	obs = obsLBA
+	sunObj = sunLBAObj
 
-	uvwHBA, freqHBA, __, __, xyzHBA, obsHba, sunHbaObj = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, hbaAct)
+	uvwHBA, freqHBA, __, __, xyzHBA, obsHBA, sunHBAObj, sourceObjHBA = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, hbaAct)
 
 	image_num = 0
 	plt.ion()
@@ -425,7 +445,7 @@ def mainCall(opts, args):
 	zplane = 5.0769e3
 	xplane = 3.80155e3
 	yplane = -5.28875e2
-	planeConsts = [zplane, xplane, yplane]
+	planeConsts = [xplane, yplane, zplane]
 
 
 	xLBA, yLBA, zLBA, plotConstantsLBA = plotConsts(xyzLBA, planeConsts)
@@ -437,8 +457,8 @@ def mainCall(opts, args):
 	res=fov/px[0]   #pixel resolution
 	dummy = 0.0   
 	
-	if not os.path.exists("./station_plots"):
-		os.mkdir("./station_plots")
+	if not os.path.exists(outputFolder):
+		os.mkdir(outputFolder)
 
 	while refTime < endTime:
 	
@@ -481,8 +501,8 @@ def mainCall(opts, args):
 		#    Plot projections on the XYZ planes
 		#
 
-		processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstants, ax, antType = 'LBA')
-		processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstants, ax, antType = 'HBA')
+		ax = processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstantsLBA, sun_ecef, ax, antType = 'LBA', plotSuns = True) # Plot suns first to prevent z-buffer issues
+		ax = processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstantsHBA, sun_ecef, ax, antType = 'HBA', plotSuns = False) 
 
 		print("Projecions plotted")
 	
@@ -511,7 +531,7 @@ def mainCall(opts, args):
 		sourceObj._ra=sunObj.ra
 		sourceObj._dec=sunObj.dec
 		sourceObj.compute(obs)
-		uvw=xyz2uvw(xyzLBA, sourceObjLBA, obsLba, freqLBA[0])
+		uvw=xyz2uvw(xyzLBA, sourceObjLBA, obsLBA, freqLBA[0])
 		U=uvw[:,:,0]
 		V=uvw[:,:,1]
 		ax0 = plt.subplot2grid((2, 2), (0, 1))
@@ -546,7 +566,7 @@ def mainCall(opts, args):
 		cbar.set_label('log$_{10}$(I$_{beam}$)')
 		print("Beam Plotted")
 		plt.show( )
-		plt.savefig('./station_plots/station_uv_beam_'+str(format(image_num, '03'))+'.png')   # save the figure to file
+		plt.savefig(outputFolder + '/station_uv_beam_'+str(format(image_num, '03'))+'.png')   # save the figure to file
 		#pdb.set_trace()    
 		plt.close(fig)
 		print(image_num)
@@ -577,6 +597,7 @@ if __name__ == '__main__':
 	o.add_option('-a', '--hba_activation', dest = 'HBA_act', help = "HBA activation pattern ('effelsberg', 'generic', 'debug', ...)", default = None)
 	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in mm/dd syntax, or 'winter' / 'summer' for solstaces)", default = 'winter')
 	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels", default = 128)
+	o.add_option('-o', '--output_folder', dest = 'output_folder', help = "Where to put the output files (can be auto generated)", default = None)
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
 #
