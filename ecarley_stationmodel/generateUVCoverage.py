@@ -1,3 +1,7 @@
+import matplotlib
+
+matplotlib.use('Agg')
+
 import math
 import numpy as np
 import ephem
@@ -13,10 +17,13 @@ import time
 import datetime
 import calendar
 import pytz
-
+import skimage.measure as skim
 import copy
 import multiprocessing as mp
 
+import subprocess
+
+ffmpegLoc = "/cphys/ugrad/2015-16/JF/MCKENND2/Downloads/ffmpeg-4.0.2-64bit-static/ffmpeg"
 global rcuInfo
 rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refFreq': 0},            #0
 			{'mode':'LBL_HPF10MHZ', 'rcuID':1, 'array_type':'LBA', 'bw':100000000., 'refFreq': 50e6},   #1
@@ -26,6 +33,13 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 			{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
 			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
 			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
+
+Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
+Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
+custom_debug = (range(16) * 8)[:len(Effelsberg_elements_20091110)]
+
+global activationSchemes
+activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug]
 
 def eq2top_m(ha, dec):
 	"""Return the 3x3 matrix converting equatorial coordinates to topocentric
@@ -45,6 +59,7 @@ def get_baseline(i, j, src, obs, includeSelfRef = True):
 	bl = j - i
 	try:
 		if src.alt < 0:
+			print(src.date, src.alt, obs.date)
 			raise PointingError('Phase center below horizon')
 		m=src.map
 	except(AttributeError):
@@ -115,6 +130,8 @@ def dftImage(d,uvw,px,res,mask=False):
 
 def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	"""return a FFT image"""
+
+	print("Init FFT")
 	start_time = time.time()
 	nants=uvw.shape[0]
 	im=np.zeros((pxPlot[0],pxPlot[1]),dtype=complex)
@@ -122,6 +139,8 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	u=uvw[:,:,0].reshape(-1)
 	v=uvw[:,:,1].reshape(-1)
 
+	print(u.size, v.size)
+	print("Reshaped Arrays")
 	# u,v = x,y / lambda implies theta = 1 / u,v
 
 	uvMax = np.max([u, v])
@@ -132,21 +151,22 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	res = 1. / (2. * uvMax) # 2x for Nyquist sampling
 	px = int(2. * uvMax / res)
 	
+	print(np.max(u), np.max(v), uvMax, res)
 	# Temp debug
 	pxPlot = [px, px]
 	imSize = px + 11 # 5 padding on each side + 1 for rounding
 	centralRef = imSize / 2
 
 	uvGrid = np.zeros([imSize, imSize])
-
+	print("Determining Sample Grid")
 	sampleGrid = np.mgrid[-4:5, -4:5].reshape(1, 2, -1).astype(float) * res
 	sampleCache = sampleGrid.copy()
-
+	print("Copied Sampled Grid")
 	gaussCoeff = 1. / (2. * np.square(res))
 	guassMatrix = np.array([[gaussCoeff, 0], [0, gaussCoeff]])
 	#sampledPoints: (1,2,-1)
 	gaussLambda = lambda sampledPoints: np.sum(np.exp(-1. * np.dot(guassMatrix, np.square(sampledPoints))), axis = (0,1))
-	
+	print("Lambda Defined")
 	for sampleCoord in np.vstack([u, v]).T[:, np.newaxis, :]:
 		offsets = res - (sampleCoord % res)[..., np.newaxis]
 		sampleCache += offsets
@@ -171,17 +191,24 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 		uvGrid[sampleIndex[0, 0, :], sampleIndex[0, 1, :]] += pointSamples
 
 		sampleCache -= offsets
-	
+	print("Gridding Complete, size ", uvGrid.size, res, px)
 	uvGrid = uvGrid[5:-6, 5:-6] # Remove padding
 
+	# Sometimes we get absolutely huge arrays (Thanks HBAs.). Let's resample these down to a more reasonable vlaue of ~512 ** 2
+	if im.shape[0] > 728:
+		imDiv = int(im.shape[0] / 512)
+		im = skim.block_reduce(im.real, [imDiv, imDiv], np.sum)	
 
 	im = np.fft.fft2(uvGrid)
-	im = np.fft.fftshift(np.abs(im.real)) # Abs of FFT == DFT?
+	print("FFT Complete")
 
+	im = np.fft.fftshift(np.abs(im.real)) # Abs of FFT == DFT?
+	print("FFT Shifted")
 	if useDVar:
 		im *= d
 	print(res, imSize, res * imSize)
-	
+
+
 	if mask:
 		sampleGrid = np.array(np.meshgrid(np.arange(im.shape[0]), np.arange(im.shape[1]))) - np.max(im.shape) / 2
 		maskRad = np.sqrt(np.square(sampleGrid[0] * 1.22 * res) + np.square(sampleGrid[1] * 1.22 * res)) # 1.22 factor to convert to radians
@@ -197,8 +224,35 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	print("FFT Image ended after {0}".format(time.time() - start_time))
 	return im
 
-def read_ant_xyz(antFieldFile, rcumode, station):
+def read_ant_xyz(antFieldFile, rcumode, station, activationDeltas = [None, None]):
 	fh=open(antFieldFile)
+
+	if activationDeltas[0] is not None:
+
+		activation, hbaDeltas = activationDeltas
+		activationArr = activationSchemes[activation]
+		deltaArr = []
+		print(activationArr, hbaDeltas)
+
+		with open(hbaDeltas) as deltaRef:
+			readNext = False
+			for line in deltaRef:
+				if line.startswith(']'):
+					readNext = False
+
+				if readNext:
+					lineCull = line[:-2].split(' ')
+					deltaArr.append([float(delta) for delta in line[:-2].split(' ')[4:] if delta != ''])
+
+				if line.startswith("(0,15)"):
+					readNext = True
+
+		deltaArr = np.vstack(deltaArr).astype(float)
+
+	else:
+		activationArr = np.zeros([96], dtype = int)
+		deltaArr = np.zeros([16, 3])
+
 	readXYZ=False
 	readArrayHDR=False
 	readArray=False
@@ -211,9 +265,9 @@ def read_ant_xyz(antFieldFile, rcumode, station):
 			readXYZ=True
 			continue
 		if readXYZ:
-			arr_x=line.split(' ')[2]
-			arr_y=line.split(' ')[3]
-			arr_z=line.split(' ')[4]
+			arr_x=float(line.split(' ')[2])
+			arr_y=float(line.split(' ')[3])
+			arr_z=float(line.split(' ')[4])
 			readXYZ=False
 			readArrayHDR=True
 			continue
@@ -228,11 +282,16 @@ def read_ant_xyz(antFieldFile, rcumode, station):
 		if readArray and linecnt < nelem:
 			cl=' '.join(line.split())
 			ants.append(map(float,cl.split(' ')))
+
 			linecnt+=1   
 	fh.close()        
 
-	xyz=[]
-	for a in ants: xyz.append([a[0]+float(arr_x),a[1]+float(arr_y),a[2]+float(arr_z)])
+	xyz = [[a[0] + arr_x + deltaArr[activationArr[idx]][0],
+			a[1] + arr_y + deltaArr[activationArr[idx]][1],
+			a[2] + arr_z + deltaArr[activationArr[idx]][2]]
+
+				for idx, a in enumerate(ants)]
+
 	xyz=np.array(xyz) # Pretty sure this is Earth Centered, Earth Fixed (ECEF) Coords.
 
 	return xyz
@@ -247,56 +306,60 @@ def initialiseLocalFiles(args):
 			urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", antFieldFile)
 	
 	
-	antArrFile = "./AntennaArrays.conf"
+	antArrFile = "./stations_etrs.txt"
 	
-	if not os.path.exists(antArrFile):
+	hbaDeltas = "./IE613-iHBADeltas.conf"
+	
+	if not os.path.exists(hbaDeltas):
 		import urllib
-		urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/AntennaArrays/AntennaArrays_Int.conf", antArrFile)
+		urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-iHBADeltas.conf", "IE613-iHBADeltas.conf")
 	
-	return antFieldFile, antArrFile
+	return antFieldFile, antArrFile, hbaDeltas
 
-def getLatLongElevation(antArrFile, arrayType):
+def getLatLongElevation(antArrFile, arrayName):
 	with open(antArrFile) as fh:
-		readLatLon=False
 
 		for line in fh:
-			if line.lower().startswith(arrayType.lower()):
-				readLatLon=True
-				continue
-			if readLatLon:
-				lon=line.split(' ')[2]
-				lat=line.split(' ')[3]
-				elev=line.split(' ')[4]
-				readLatLon=False
+			print(line, arrayName)
+			if line.lower().startswith(arrayName.lower()):
+				lon=float(line.split('\t')[4])
+				lat=float(line.split('\t')[5])
+				elev=float(line.split('\t')[6])
+				print(lon, lat, elev)
 				break
 
 	return [lon, lat, elev]
 
-def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
+def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = [None, None]):
 	antType = rcuInfo[rcuMode]['array_type']
-	antLatLongEle = np.array(getLatLongElevation(antArrFile, antType), dtype = float)
+	antLatLongEle = np.array(getLatLongElevation(antArrFile, 'IE613' + antType), dtype = float)
 
 	freq = np.array([rcuInfo[rcuMode]['refFreq']])
 
 	obs = ephem.Observer()
 	sunObj = ephem.Sun()
 
-	obs.lon, obs.lat = math.radians(antLatLongEle[0]), math.radians(antLatLongEle[1])
+	obs.lon, obs.lat = math.radians(antLatLongEle[1]), math.radians(antLatLongEle[0])
 	obs.elevation = antLatLongEle[2]
-	obs.horizon = 0.4 # Set horizon to 24 degrees so we don't sample the udnerside of the array
-	obs.epoch=2000.0
+	obs.pressure = 0
 
 	obs.date = obsTime
 
-	initTime = str(obs.previous_rising(sunObj))[:-5] + '00:00'
+	sunObj.compute(obs)
 
-	initTime = initTime[:-7] + str(int(initTime[-7]) + 1) + initTime[-6:]
-	endTime = str(obs.next_setting(ephem.Sun()))[:-5] + '00:00'
+	initTime = str(obs.previous_rising(sunObj))
+	endTime = str(obs.next_setting(sunObj))
+	print(initTime, endTime)
 
+	initTime = initTime[:-6] + initTime[-6:-4] + '0:00'
+	endTime = endTime[:-6] + endTime[-6:-4] + '0:00'
+
+	print(initTime, endTime)
 	initTime = calendar.timegm( time.strptime(initTime, "%Y/%m/%d %H:%M:%S") )
 	endTime = calendar.timegm( time.strptime(endTime, "%Y/%m/%d %H:%M:%S") )
-	initTime = datetime.datetime.utcfromtimestamp(initTime)
-	endTime = datetime.datetime.utcfromtimestamp(endTime)
+
+	initTime = datetime.datetime.utcfromtimestamp(initTime) + datetime.timedelta(minutes = 30)
+	endTime = datetime.datetime.utcfromtimestamp(endTime) - datetime.timedelta(minutes = 30)
 
 
 	sunObj.compute(obs)
@@ -305,12 +368,9 @@ def antProc(antFieldFile, antArrFile, rcuMode, obsTime, hbaActivation = None):
 	sourceObj._dec = sunObj.dec
 	sourceObj.compute(obs)
 
-	xyz = read_ant_xyz(antFieldFile, rcuMode, 'IE')
+	xyz = read_ant_xyz(antFieldFile, rcuMode, 'IE', hbaActivation)
 
-	if hbaActivation is None:
-		uvw = xyz2uvw(xyz, sourceObj, obs, freq[0])
-	else:
-		return #TODO
+	uvw = xyz2uvw(xyz, sourceObj, obs, freq[0])
 
 	return uvw, freq, initTime, endTime, xyz, obs, sunObj, sourceObj
 
@@ -348,6 +408,7 @@ def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, sun_ecef, ax, antTy
 	obs.date = refTimeUtc
 	sunObj.compute(obs)
 
+	print(sun_ecef)
 	to_sunx = [ meanX, sun_ecef[0]/1000.0 ]
 	to_suny = [ meanY, sun_ecef[1]/1000.0 ]
 	to_sunz = [ meanZ, sun_ecef[2]/1000.0 ]
@@ -386,9 +447,12 @@ def processPlot(xyz, obs, sunObj, refTimeUtc, plotConstants, sun_ecef, ax, antTy
 	ax.plot(x, yProj, z, '.', color='lightgray', zorder=-2)
 	ax.plot(to_sunx, to_sunyproj, to_sunz, color='lightgray', zorder=-2)
 
+	ax.set_aspect('equal')
+	ax.set_anchor('SW')
+
 	return ax
 
-def processUVCoverage(sunObj, obs, xyz, sourceObj, obsArr, freq, colIdx, subplotTuple, antType):
+def processUVCoverage(idx, sunObj, obs, xyz, sourceObj, obsArr, freq, colIdx, subplotTuple, antType):
 
 	sourceObj=sunObj
 	sourceObj._ra=sunObj.ra
@@ -399,18 +463,27 @@ def processUVCoverage(sunObj, obs, xyz, sourceObj, obsArr, freq, colIdx, subplot
 	V=uvw[:,:,1]
 
 	print(subplotTuple, colIdx)
-	ax0 = plt.subplot2grid(subplotTuple, (0, colIdx))
+	ax0 = plt.subplot2grid(subplotTuple, (0, colIdx), fig = plt.figure(idx))
+	ax0.plot(U, V, '.')
+	ax0.set_xlabel('u ($\lambda$)')
+	ax0.set_ylabel('v ($\lambda$)')
+	ax0.set_title('UV-coverage at {0} MHz for IE613 {1}s. Source: Sun'.format(round(freq[0]/1e6, 1), antType))
+
+	if antType == 'LBA':
+		limVar = 10
+	if antType == 'HBA':
+		limVar = 30
+	limVar = [-1.1 * limVar, 1.1 * limVar]
+
+	ax0.set_xlim(limVar)
+	ax0.set_ylim(limVar)
 	ax0.set_aspect('equal')
-	plt.plot(U, V, '.')
-	plt.xlabel('u ($\lambda$)')
-	plt.ylabel('v ($\lambda$)')
-	plt.title('UV-coverage at {0} MHz for IE613 {1}s. Source: Sun'.format(round(freq[0]/1e6, 1), antType))
-	plt.axis([-10, 10, -10, 10])
+
 	print("UVW Plotted")
 
 	return uvw
 
-def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar):
+def beamGenerator(idx, dummy, uvw, px, res, fftType, maskVar):
 	
 	####################################
 	#       Plot instrument beam
@@ -419,16 +492,19 @@ def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder,
 	else:
 		img = fftImage(dummy, uvw, px, res, mask = maskVar, method = fftType)
 
+	print("Exiting process for figure {0}".format(idx))
+	return img
+
+def beamPlot(idx, img, dummy, pixels, freq, outputFolder, fftType, colIdx, subplotTuple, antType):
+	fig = plt.figure(idx)
+
 	img=img.real
 	img=np.log(img)
-	
-	print(subplotTuple, colIdx)
 	ax1 = plt.subplot2grid(subplotTuple, (1, colIdx), fig = fig)
 
 	ax1 = fig.gca()
-
 	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
-	ax1.set_title('IE613 {0} MHz {1} station beam. Source: Sun'.format((round(freqLBA[0]/1e6, 1)), antType))
+	ax1.set_title('IE613 {0} MHz {1} station beam. Source: Sun'.format((round(freq[0]/1e6, 1)), antType))
 	ax1.yaxis.set_major_locator(plt.NullLocator())
 	ax1.xaxis.set_major_locator(plt.NullLocator())
 	
@@ -436,49 +512,70 @@ def singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder,
 	cax = divider.append_axes("right", size="2%", pad=0.05)
 	cbar = plt.colorbar(im, cax=cax)
 	cbar.set_label('log$_{10}$(I$_{beam}$)')
-	print("Beam Plotted")
-	fig.show( )
-	fig.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
+	print("{0} Beam Plotted for figure {1}".format(antType, idx))
 
-	plt.close(idx)
+	if colIdx == subplotTuple[1] - 1:
+		plt.show()
+		plt.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
+		#pdb.set_trace()    
+		plt.close(fig)
 	
-def mpCheckAndCallFT(enableMp, idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar):
-	if enableMp:
-		mpPool.apply_async(singleTimeStep, args = ([idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar]))
+def mpCheckAndCallFT(idx, dummy, uvw, px, res, fftType, maskVar, mpPool = None):
+	if mpPool is not None:
+		returnVar = mpPool.apply_async(beamGenerator, args = ([idx, dummy, uvw, px, res, fftType, maskVar]))
 	else:
-		singleTimeStep(idx, fig, dummy, uvw, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, antType, maskVar)
+		returnVar = beamGenerator(idx, dummy, uvw, px, res, fftType, maskVar)
+
+	return returnVar
 
 def mainCall(opts, args):
-
+	plt.close('all')
 	fftType = opts.fftType
 	print(fftType)
 	assert(fftType in [None, 'gaus', 'rect', 'rectgaus'])
 	pltLBA = opts.LBA
 	pltHBA = opts.HBA
+	hbaActivation = opts.HBA_act
 	obsTime = opts.time
 	pixels = opts.pixels
-	timeStep = opts.ts * 60.
+	timeStep = float(opts.ts) * 60.
 	outputFolder = opts.output_folder
 	enableMp = opts.mp
 	maskVar = opts.mask
 
-	antFieldFile, antArrFile = initialiseLocalFiles(args)
+	antFieldFile, antArrFile, hbaDeltas = initialiseLocalFiles(args)
 	print("Files detected or acquired")
 
 	lbaRcuMode = opts.lba_rcu_mode
-	lbaLatLongEle = getLatLongElevation(antArrFile, 'LBA')
+	lbaLatLongEle = getLatLongElevation(antArrFile, 'IE613LBA')
 
-	hbaAct = opts.HBA_act
 	hbaRcuMode = opts.hba_rcu_mode
-	hbaLatLongEle = getLatLongElevation(antArrFile, 'HBA')
+	hbaLatLongEle = getLatLongElevation(antArrFile, 'IE613HBA')
+
+	if hbaActivation is not None:
+		if hbaActivation in [0, '0', 'effelsberg', 'eff', 'effels']:
+			hbaActivation = 0
+			hbaActStr = '_Effelsberg'
+
+		elif hbaActivation in [1, '1', 'generic', 'gen', 'orig']:
+			hbaActivation = 1
+			hbaActStr = '_Generic'
+
+		elif hbaActivation in [2, '2', 'debug', 'db', 'dbg']:
+			hbaActivation = 2
+			hbaActStr = '_Debug'
+		else:
+			raise LookupError("Unknown Activation Scheme {0}!".format(hbaActivation))
+	else:
+		hbaActStr = ''
 
 	if outputFolder is None:
-		outputFolder = 'IE613_station_uv_converage'
+		outputFolder = 'IE613_station_uv_coverage'
 		if pltLBA:
 			outputFolder += '_LBA_{0}'.format(lbaRcuMode)
 		if pltHBA:
-			outputFolder += '_HBA_{0}_{1}'.format(hbaRcuMode, hbaAct)
-			
+			outputFolder += '_HBA_{0}{1}'.format(hbaRcuMode, hbaActStr)
+				
 		outputFolder += '_' + obsTime
 
 		if fftType is not None:
@@ -491,7 +588,8 @@ def mainCall(opts, args):
 		if obsTime == 'summer': obsTime = '06/21'
 		elif obsTime == 'winter': obsTime = '12/21'
 		else: print("Broken date statement, this message should be unreachable.")
-	obsTime = "2018/{0} 13:00:00".format(obsTime)
+
+	obsTime = "2018/{0} 15:00:00".format(obsTime)
 
 	# TODO: move more logic into here, after cleanup
 
@@ -502,7 +600,7 @@ def mainCall(opts, args):
 	obs = obsLBA
 	sunObj = sunLBAObj
 
-	uvwHBA, freqHBA, __, __, xyzHBA, obsHBA, sunHBAObj, sourceObjHBA = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, hbaAct)
+	uvwHBA, freqHBA, __, __, xyzHBA, obsHBA, sunHBAObj, sourceObjHBA = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, [hbaActivation, hbaDeltas])
 
 	image_num = 0
 	plt.ion()
@@ -529,8 +627,13 @@ def mainCall(opts, args):
 	if enableMp:
 		processes = mp.cpu_count() - 1
 		mpPool = mp.Pool(processes = processes)
+	else:
+		mpPool = None
 
 	idx = 0
+
+	lbaRet = []
+	hbaRet = []
 	while refTime <= endTime:
 		print("Starting Loop")
 		print(obs.date)
@@ -543,18 +646,19 @@ def mainCall(opts, args):
 			
 		#TODO: Progamatically adjust
 		uvPlots = sum([pltHBA, pltLBA])
+		print(10 + uvPlots * 8, 'uvPlots')
 		fig = plt.figure(idx, figsize=(10 + uvPlots * 8, 10))
 		
 		####################################
 		#       Plot IE613 and sun
-		subplotTuple = (2, 1 + uvPlots)
-		ax = plt.subplot2grid(subplotTuple, (0, 0), rowspan= 2, projection='3d', fig = fig)
-	
+		subplotTuple = (2, 2 + uvPlots)
+		ax = plt.subplot2grid(subplotTuple, (0, 0), rowspan= 2, colspan = 2, projection='3d', fig = fig)
+		ax = fig.gca()
 
 		alt = math.degrees(sunObj.alt)
 		az = math.degrees(sunObj.az) 
 		
-		sun_ecef = pm.aer2ecef(az, alt, 150.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
+		sun_ecef = pm.aer2ecef(az, alt, 100.0, 53.09472, -7.9213880, 75.0, deg=True) #pm.geodetic2ecef(53.09472, -7.921388, 75.0, deg=True)
 
 		ax = processPlot([xLBA, yLBA, zLBA], obsLBA, sunLBAObj, refTimeUtc, plotConstantsLBA, sun_ecef, ax, antType = 'LBA', plotSuns = True) # Plot suns first to prevent z-buffer issues
 		ax = processPlot([xHBA, yHBA, zHBA], obsHBA, sunHBAObj, refTimeUtc, plotConstantsHBA, sun_ecef, ax, antType = 'HBA', plotSuns = False) 
@@ -568,25 +672,48 @@ def mainCall(opts, args):
 		ax.set_xlim3d(xbox_cen, xbox_cen+box_width)
 		ax.set_ylim3d(ybox_cen -box_width, ybox_cen)
 		ax.set_zlim3d(zbox_cen, zbox_cen+box_width)
+
 		plt.title('IE613 solar alt: %s$^{\circ}$, az: %s$^{\circ}$ @ %s IST' % (round(alt), round(az), refTimeUtc))
+
 		ax.set_xlabel('X (km)')
 		ax.set_ylabel('Y (km)')
 		ax.set_zlabel('Z (km)')
-		plt.gca().set_position([0, 0.0, 0.52, 1.0])
-		ax.view_init(elev=16, azim=-55.0)
+
+		print(2. / (2. + uvPlots) + 0.15)
+		plt.gca().set_position([0., 0., 2. / (2. + uvPlots), 1.])
+		ax.view_init(elev=5, azim=-45.0)
+
+		ax.tick_params(axis = 'z', direction = 'out', pad = 15.0)
 		print("Plot reoritentatied")
 
 		####################################
 		#       Plot UV coverage, beam
-		colIdx = 1
+		#		If they aren't called separately, we'll randomly lose graphs if the process is multithreaded.
+		colIdx = 2
 		if pltLBA:
-			uvwLBA = processUVCoverage(sunLBAObj, obs, xyzLBA, sourceObjLBA, obsLBA, freqLBA, colIdx, subplotTuple, 'LBA')
-			mpCheckAndCallFT(enableMp, idx, fig, dummy, uvwLBA, px, res, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, 'LBA', maskVar)
+			uvwLBA = processUVCoverage(idx, sunLBAObj, obs, xyzLBA, sourceObjLBA, obsLBA, freqLBA, colIdx, subplotTuple, 'LBA')
 			colIdx += 1
 		if pltHBA:
-			uvwHBA = processUVCoverage(sunHBAObj, obs, xyzHBA, sourceObjHBA, obsHBA, freqHBA, colIdx, subplotTuple, 'HBA')
-			mpCheckAndCallFT(enableMp, idx, fig, dummy, uvwHBA, px, res, pixels, freqHBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA', maskVar)
-			colIdx += 1
+			uvwHBA = processUVCoverage(idx, sunHBAObj, obs, xyzHBA, sourceObjHBA, obsHBA, freqHBA, colIdx, subplotTuple, 'HBA')
+
+		colIdx = 2
+		if pltLBA:
+			lbaRet.append([idx, mpCheckAndCallFT(idx, dummy, uvwLBA, px, res, fftType, maskVar, mpPool)])
+			colIdx +=1
+		if pltHBA:
+			hbaRet.append([idx, mpCheckAndCallFT(idx, dummy, uvwHBA, px, res, fftType, maskVar, mpPool)])
+		
+		colIdx = 2
+		if not enableMp:
+			if pltLBA:
+				beamPlot(idx, lbaRet[-1][1], dummy, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, 'LBA')
+				colIdx += 1
+			if pltHBA:
+				beamPlot(idx, hbaRet[-1][1], dummy, pixels, freqHBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA')
+		
+		if not (pltLBA or pltHBA):
+			fig.savefig(outputFolder + '/station_uv_beam_'+str(format(idx, '03'))+'.png')   # save the figure to file
+			plt.close(idx)
 
 		refTime += datetime.timedelta(seconds = timeStep)
 		idx += 1
@@ -595,6 +722,22 @@ def mainCall(opts, args):
 	if enableMp:
 		mpPool.close()
 		mpPool.join()
+
+		coldIdx = 2
+		if pltLBA:
+			for idx, asyncCallback in lbaRet:
+				lbaImg = asyncCallback.get()
+				beamPlot(idx, lbaImg, dummy, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, 'LBA')
+
+		colIdx = 2 + pltLBA
+		if pltHBA:
+			for idx, asyncCallback in hbaRet:
+				hbaImg = asyncCallback.get()
+				beamPlot(idx, hbaImg, dummy, pixels, freqHBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA')
+
+	plt.close('all')
+	subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-i',  '{0}/station_uv_beam_%03d.png'.format(outputFolder), '-vb', '50M', "{0}/{0}.mpg".format(outputFolder)])
+
 	
 #ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
 	
@@ -613,16 +756,17 @@ if __name__ == '__main__':
 	
 	o.add_option('-f', '--fft', dest = 'fftType', help = "Perform beam synthesis by FFT/gridding with the (rect)angular or (gaus)sian method for windowing.", default = None)
 	
-	o.add_option('-l', '--lba', action = 'store_true', dest = 'LBA', help = "Plot LBA UV/beam in output image.", default = True)
+	o.add_option('-l', '--lba', action = 'store_false', dest = 'LBA', help = "Plot LBA UV/beam in output image.", default = True)
 	o.add_option('-c', '--hba', action = 'store_true', dest = 'HBA', help = "Plot HBA UV/beam in output image.", default = False)
 	
 	o.add_option('-a', '--hba_activation', dest = 'HBA_act', help = "HBA activation pattern ('effelsberg', 'generic', 'debug', ...)", default = None)
-	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in mm/dd syntax, or 'winter' / 'summer' for solstaces)", default = 'winter')
-	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels", default = 128)
+	o.add_option('-t', '--time', dest = 'time', help = "Observation date (2018, provide date in mm/dd syntax, or 'winter' / 'summer' for solstices)", default = 'winter')
+	o.add_option('-p', '--pixels', dest = 'pixels', help = "Size of the synthesized beam image in pixels (DFT METHOD ONLY)", default = 128)
 	o.add_option('-o', '--output_folder', dest = 'output_folder', help = "Where to put the output files (can be auto generated)", default = None)
 	o.add_option('-s', '--time_step', dest = 'ts', help = "Time (in minutes) between sampling steps.", default = 5.)
 	o.add_option('-m', '--multi-thread', dest = 'mp', action = 'store_true', help = "Using this flag will enable multithreading with n-1 of available CPU cores being used.", default = False)
 	o.add_option('-r', '--mask_radius', dest = 'mask', action = 'store_true', help = "Limit the output beam shape to a circle (TODO: Inputable radius)", default = False)
+
 	opts, args = o.parse_args(sys.argv[1:])  
 	mainCall(opts, args)
 #
