@@ -681,9 +681,11 @@ def mainCall(opts, args):
 
 		print(2. / (2. + uvPlots) + 0.15)
 		plt.gca().set_position([0., 0., 2. / (2. + uvPlots), 1.])
-		ax.view_init(elev=5, azim=-45.0)
+		ax.view_init(elev=25, azim=-75.0)
+		
 
-		ax.tick_params(axis = 'z', direction = 'out', pad = 15.0)
+		ax.tick_params(axis = 'z', direction = 'out', pad = 18.0)
+		ax.tick_params(axis = 'y', direction = 'out', pad = 14.0)
 		print("Plot reoritentatied")
 
 		####################################
