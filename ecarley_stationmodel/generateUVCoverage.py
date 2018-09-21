@@ -208,13 +208,14 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 
 		sampleCache -= offsets
 
-	print("Gridding Complete, size ", uvGrid.size, res, px)
+	print("Gridding Complete, size ", uvGrid.size, res, px, im.shape)
 	uvGrid = uvGrid[5:-6, 5:-6] # Remove padding
 
 	# Sometimes we get absolutely huge arrays (Thanks HBAs.). Let's resample these down to a more reasonable value of ~512 ** 2
-	if im.shape[0] > 728:
-		imDiv = min(1, int(im.shape[0] / 512) - 1)
-		im = skim.block_reduce(im.real, [imDiv, imDiv], np.sum)	
+	if uvGrid.shape[0] > 728:
+		print("Attempting to shrink size from {0}".format(uvGrid.shape[0]))
+		imDiv = min(1, int(uvGrid.shape[0] / 512) - 1)
+		uvGrid = skim.block_reduce(uvGrid.real, (imDiv, imDiv), np.sum)	
 
 	oddOffset = 1 - (im.shape[0] % 2)
 	uvGrid = uvGrid[5:-6 + oddOffset, 5:-6 + oddOffset] # Remove padding but ensure an odd result
@@ -516,19 +517,33 @@ def beamPlot(idx, img, dummy, pixels, freq, outputFolder, fftType, colIdx, subpl
 	fig = plt.figure(idx)
 
 	img=img.real
-	img=np.log(img)
-	ax1 = plt.subplot2grid(subplotTuple, (1, colIdx), fig = fig)
+	#img=np.log(img)
+	ax1 = plt.subplot2grid(subplotTuple, (1, colIdx), fig = fig, projection = '3d')
 
 	ax1 = fig.gca()
-	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+#	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
+	X = np.arange(-img.shape[0] / 2, img.shape[0] / 2)
+	Y = np.arange(-img.shape[1] / 2, img.shape[1] / 2)
+
+	X = np.repeat(X[:, np.newaxis], img.shape[1], axis = 1)
+	Y = np.repeat(Y[:, np.newaxis], img.shape[0], axis = 1).T
+
+	plotLim = np.max(img)
+	plotLim = [np.power(np.log10(plotLim) * 0.33, 10), plotLim]
+	im = ax1.plot_surface(X, Y, img, cmap = 'viridis')
+	ax1.set_zlim(plotLim[0], plotLim[1])
+
+	cbar = plt.colorbar(im)
+
+	ax1.view_init(elev=25, azim=-45.0)
 	ax1.set_title('IE613 {0} MHz {1} station beam. Source: Sun'.format((round(freq[0]/1e6, 1)), antType))
-	ax1.yaxis.set_major_locator(plt.NullLocator())
 	ax1.xaxis.set_major_locator(plt.NullLocator())
+	ax1.yaxis.set_major_locator(plt.NullLocator())
 	
-	divider = make_axes_locatable(ax1)
-	cax = divider.append_axes("right", size="2%", pad=0.05)
-	cbar = plt.colorbar(im, cax=cax)
-	cbar.set_label('log$_{10}$(I$_{beam}$)')
+	#divider = make_axes_locatable(ax1)
+	#cax = divider.append_axes("right", size="2%", pad=0.05)
+	#cbar = fig.colorbar(im)
+	#cbar.set_label('log$_{10}$(I$_{beam}$)')
 	print("{0} Beam Plotted for figure {1}".format(antType, idx))
 
 	if colIdx == subplotTuple[1] - 1:
@@ -694,7 +709,7 @@ def mainCall(opts, args):
 
 		print(2. / (2. + uvPlots) + 0.15)
 		plt.gca().set_position([0., 0., 2. / (2. + uvPlots), 1.])
-		ax.view_init(elev=25, azim=-75.0)
+		ax.view_init(elev=16, azim=-55.0)
 		
 
 		ax.tick_params(axis = 'z', direction = 'out', pad = 18.0)
