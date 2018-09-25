@@ -35,7 +35,7 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
 			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
 
-Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
+Effelsberg_elements_20091110 = 
 Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
 custom_debug = (range(16) * 8)[:len(Effelsberg_elements_20091110)]
 
@@ -521,6 +521,9 @@ def beamPlot(idx, img, dummy, pixels, freq, outputFolder, fftType, colIdx, subpl
 	ax1 = plt.subplot2grid(subplotTuple, (1, colIdx), fig = fig, projection = '3d')
 
 	ax1 = fig.gca()
+	ax1.w_xaxis.set_pane_color((0.75,0.75,0.75,1))
+	ax1.w_yaxis.set_pane_color((0.75,0.75,0.75,1))
+	ax1.zaxis.pane.fill = False
 #	im = ax1.imshow(img, extent = (-1.0*pixels, pixels, pixels, -1.0*pixels), vmin = 0.51, vmax= 10.5)
 	X = np.arange(-img.shape[0] / 2, img.shape[0] / 2)
 	Y = np.arange(-img.shape[1] / 2, img.shape[1] / 2)
@@ -528,14 +531,35 @@ def beamPlot(idx, img, dummy, pixels, freq, outputFolder, fftType, colIdx, subpl
 	X = np.repeat(X[:, np.newaxis], img.shape[1], axis = 1)
 	Y = np.repeat(Y[:, np.newaxis], img.shape[0], axis = 1).T
 
+	img = np.log10(img)
+
 	plotLim = np.max(img)
-	plotLim = [np.power(np.log10(plotLim) * 0.33, 10), plotLim]
-	im = ax1.plot_surface(X, Y, img, cmap = 'viridis')
+	plotLim = [plotLim * 0.1, plotLim]
+	limitPlots = img < plotLim[0]
+
+	#im = ax1.plot_surface(X, Y, plotBelowAxis, cmap = 'viridis', vmax = plotLim[1], vmin = plotLim[0], alpha = 1.)
+	midEle = [int((X.shape[0] / 2) * 1.1) + 1, int((X.shape[1] / 2) * 1.1) + 1]
+
+	selection = (X + Y) >= 0
+	imgCpy = img.copy()
+	imgCpy[selection] = np.nan
+
+	im = ax1.plot_surface(X, Y, imgCpy, cmap = 'viridis', vmax = plotLim[1], vmin = plotLim[0], alpha = .5)
 	ax1.set_zlim(plotLim[0], plotLim[1])
+	ax1.contour(X, Y, img, zdir = 'z', offset = ax1.get_zlim()[0],  cmap = 'viridis', vmax = plotLim[1], vmin = plotLim[0], linewidths = 1.)
 
-	cbar = plt.colorbar(im)
+	plotAboveAxis = img.copy()
+	plotAboveAxis[limitPlots] = np.nan
 
-	ax1.view_init(elev=25, azim=-45.0)
+	approx10Lines = plotAboveAxis.shape[0] / 10
+	stridedPlotX = skim.block_reduce(plotAboveAxis, (approx10Lines, 1), np.nanmax)
+	stridedPlotY = skim.block_reduce(plotAboveAxis, (1, approx10Lines), np.nanmax)
+
+	ax1.contour(X[:midEle[0]:approx10Lines ,:], Y[:midEle[0]:approx10Lines ,:], stridedPlotX[:midEle[0]/approx10Lines + 1,:], zdir = 'x', offset = ax1.get_xlim()[0], cmap = 'viridis')
+	ax1.contour(X[:, :midEle[1]:approx10Lines], Y[:, :midEle[1]:approx10Lines], stridedPlotY[:, :midEle[1]/approx10Lines + 1], zdir = 'y', offset = ax1.get_ylim()[0], cmap = 'viridis')
+	cbar = plt.colorbar(im, shrink = 0.6)
+
+	ax1.view_init(elev=25, azim=45.0)
 	ax1.set_title('IE613 {0} MHz {1} station beam. Source: Sun'.format((round(freq[0]/1e6, 1)), antType))
 	ax1.xaxis.set_major_locator(plt.NullLocator())
 	ax1.yaxis.set_major_locator(plt.NullLocator())
