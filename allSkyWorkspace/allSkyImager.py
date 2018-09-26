@@ -1,7 +1,8 @@
 
 
 import ast
-
+import scipy.constants
+import numpy as np
 def CalcFreq(rcuMode, subband):
 	if rcuMode == 5:
 		freqoff = 100e6;
@@ -194,3 +195,51 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 def __processLine(line):
 	line = filter(None, line.split(' '))
 	return [float(element) for element in line]
+
+
+def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, outp = (0,0)):
+	nElem = np.shape(correlationMatrix)[0]
+	channelCount = correlationMatrix.shape[2]
+	c = scipy.constants.c
+
+	# Temp for lazy debugging
+	if len(lVec.shape) != 2:
+		lVec = lVec[np.newaxis, :]
+
+	if len(mVec.shape) != 2:
+		mVec = mVec[np.newaxis, :]
+
+	if len(posX.shape) != 2:
+		posX = posX[:, np.newaxis]
+
+	if len(posY.shape) != 2:
+		posY = posY[:, np.newaxis]
+
+	if type(obsFreq) is not list:
+		obsFreq = [obsFreq]
+
+	skyView = np.zeros([lVec.size, mVec.size, len(obsFreq)])
+	
+	# Should be able to fully vectorise this over all channels... for another day.
+	for channel in range(channelCount):
+		correlationMatrixChan = correlationMatrix[..., channel]
+		currFreq = obsFreq[channel]
+		print("Processing Channel {0} of {1} at Frequency {2}".format(channel + 1, channelCount, currFreq))
+		wavelength = c / currFreq
+		k = (2 * np.pi) / wavelength
+
+		wx = np.exp(-1j * k * posX * lVec)
+		wy = np.exp(-1j * k * posY * mVec)
+
+		print(wx.shape, wy.shape)
+
+		weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis]
+		conjWeight = np.conj(weight).transpose((0,1,3,2))
+
+		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr
+
+		skyView[..., channel] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w
+
+	return skyView.transpose((1,0,2))
+
+
