@@ -231,15 +231,17 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, outp = (0
 		wx = np.exp(-1j * k * posX * lVec)
 		wy = np.exp(-1j * k * posY * mVec)
 
-		print(wx.shape, wy.shape)
-
 		weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis]
 		conjWeight = np.conj(weight).transpose((0,1,3,2))
 
 		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr
 
-		skyView[..., channel] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w
+		skyView[..., channel] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
 
+		#for l in range(mVec.size):
+		#	for m in range(lVec.size):
+		#		skyView[l, m, channel] = np.dot(tempProd[l, m], weight[l, m]).real[0, 0]
+		#skyView[..., channel] = np.tensordot(tempProd, weight, ([3],[2])) # Dot products producing 201x201x1x201x201x1 arrays, thanks numpy.
 	return skyView.transpose((1,0,2))
 
 
