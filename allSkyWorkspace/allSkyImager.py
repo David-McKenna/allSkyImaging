@@ -2,32 +2,50 @@
 
 import ast
 import scipy.constants
+import scipy.ndimage
+import astropy.coordinates
+import astropy.time
+import astropy.units as u
+import datetime
+import subprocess
 import numpy as np
-def CalcFreq(rcuMode, subband):
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+
+ffmpegLoc = "/cphys/ugrad/2015-16/JF/MCKENND2/Downloads/ffmpeg-4.0.2-64bit-static/ffmpeg"
+
+def calcFreq(rcuMode, subband):
+	baseFreq = 100.0
+
+	rcuMode = int(rcuMode)
+	subband = int(subband)
 	if rcuMode == 5:
-		freqoff = 100e6;
-		basefreq = 200.0;
+		freqOff = 100e6
+
 	elif rcuMode == 6:
-		freqoff = 160e6;
-		basefreq = 160.0;
+		freqOff = 160e6
+		baseFreq = 80.0
+
 	elif rcuMode == 7:
-		freqoff = 200e6;
-		basefreq = 200.0;
+		freqOff = 200e6
+
 	else:
-		freqoff = 0;
-		basefreq = 200.0;
-	frequency = ((basefreq / 1024 ) * subband + (freqoff/1e6))
-	return frequency, freqoff
+		freqOff = 0
+
+	frequency = ((baseFreq / 512 ) * (subband) + (freqOff/1e6))
+
+	return frequency
 
 
-def parseiHBAField(afilename, hbaDeltasFile,active_elems, rcuMode, EU):
+def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 	# [posxpol, posypol, lon, lat, refpos, rotmat] =
 	#     parseiHBAField(filename, hbaDeltasFile, selection, rcuMode, EU)
 	#
 	# Parser for AntennaFields.conf and iHBADeltas.conf files.
 	#
 	# arguments
-	# filename : filename (including path if necessary) of the AntennaFields.conf
+	# afilename : filename (including path if necessary) of the AntennaFields.conf
 	#            file
 	# hbaDeltasFile: filename (including path if necessary) of the iHBADeltas.conf
 	#            file
@@ -64,7 +82,7 @@ def parseiHBAField(afilename, hbaDeltasFile,active_elems, rcuMode, EU):
 		with open(hbaDeltasFile, 'r') as hbaDeltasRef:
 			deltaLines = [line for line in hbaDeltasRef]
 
-		arrayDeltas = parseBlitzFile(deltaLines, 'HBADeltas', True)
+		arrayDeltas = parseBlitzFile(deltaLines, 'HBADeltas', False)
 	
 	if rcuMode in [1, 2, 3, 4]:
 		arrayName = 'LBA'
@@ -78,11 +96,11 @@ def parseiHBAField(afilename, hbaDeltasFile,active_elems, rcuMode, EU):
 	antLocs = parseBlitzFile(arrayLines, arrayName, True)
 
 	posX = antLocs[:, 0, :]
-	poxY = antLocs[:, 1, :]
+	posY = antLocs[:, 1, :]
 
 	if activeElems:
-		poxX += arrayDeltas[activeElements]
-		poxY += arrayDeltas[activeElements]
+		posX += arrayDeltas[activeElements]
+		posY += arrayDeltas[activeElements]
 	
 	# select the right set of antennas
 	if not EU:
@@ -113,7 +131,7 @@ def parseiHBAField(afilename, hbaDeltasFile,active_elems, rcuMode, EU):
 		#        posypol(nElem/2+1:nElem, :) = posypol(nElem/2+1:nElem, :) / rotmat2;
 		####Matlab code end
 
-		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley. Untested as I don't have matlab to test the actual intended output and haven't pointed as a core/remote station yet.
+		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley (don't have access to orignal source). Untested as I don't have matlab to test the actual intended output and haven't pointed as a core/remote station yet.
 		rotationMatrixOne = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
 		rotationMatrixTwo = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
 
@@ -133,10 +151,12 @@ def parseiHBAField(afilename, hbaDeltasFile,active_elems, rcuMode, EU):
 		rotationMatrix = np.matrix(rotationMatrix)
 
 		posX = np.matrix(posX)
+		posY = np.matrix(posY)
 		posX = posX * np.linalg.pinv( rotationMatrix ) #right matrix division
 		posY = posY * np.linalg.pinv( rotationMatrix )
 
-	
+	posX = np.array(posX)
+	posY = np.array(posY)
 	# obtain longitude and latitude of the station
 	# David McKenna: I don't want to touch this wizardry.
 	wgs84_f = 1 / 298.257223563
@@ -171,7 +191,6 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 		return np.array(dataElements)
 
 	endLine = [idx + triggerLine for idx, line in enumerate(linesArray[triggerLine:]) if ']' in line][0]
-	print(triggerLine, endLine)
 	iterateLines = range(triggerLine + 1, endLine)
 
 	arrayShapeParts = linesArray[triggerLine].count('x') + 1
@@ -197,51 +216,249 @@ def __processLine(line):
 	return [float(element) for element in line]
 
 
-def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, outp = (0,0)):
+def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
+	# corrMat: (96,96,nChan)
 	nElem = np.shape(correlationMatrix)[0]
-	channelCount = correlationMatrix.shape[2]
+	frameCount = correlationMatrix.shape[2]
 	c = scipy.constants.c
 
 	# Temp for lazy debugging
 	if len(lVec.shape) != 2:
-		lVec = lVec[np.newaxis, :]
+		lVec = lVec[np.newaxis, :] # (1, 96)
 
 	if len(mVec.shape) != 2:
-		mVec = mVec[np.newaxis, :]
+		mVec = mVec[np.newaxis, :] # (1, 96)
 
 	if len(posX.shape) != 2:
-		posX = posX[:, np.newaxis]
+		posX = posX[:, np.newaxis] # (96, 1)
 
 	if len(posY.shape) != 2:
-		posY = posY[:, np.newaxis]
+		posY = posY[:, np.newaxis] # (96, 1)
 
-	if type(obsFreq) is not list:
-		obsFreq = [obsFreq]
-
-	skyView = np.zeros([lVec.size, mVec.size, len(obsFreq)])
+	skyView = np.zeros([lVec.size, mVec.size, frameCount]) # (l,m,nChan)
 	
-	# Should be able to fully vectorise this over all channels... for another day.
-	for channel in range(channelCount):
-		correlationMatrixChan = correlationMatrix[..., channel]
-		currFreq = obsFreq[channel]
-		print("Processing Channel {0} of {1} at Frequency {2}".format(channel + 1, channelCount, currFreq))
-		wavelength = c / currFreq
+	# Should be able to fully vectorise this over all channels, should give  a nicespeedup if we pass frames as alternative channels... for another day.
+	for frame in range(frameCount):
+		correlationMatrixChan = correlationMatrix[..., frame] # (96,96)
+		print("Processing Frame {0} of {1} at Frequency {2:.2F}E+06".format(frame + 1, frameCount, obsFreq / 1e6))
+		wavelength = c / obsFreq
 		k = (2 * np.pi) / wavelength
 
-		wx = np.exp(-1j * k * posX * lVec)
-		wy = np.exp(-1j * k * posY * mVec)
+		wx = np.exp(-1j * k * posX * lVec) # (l, 96)
+		wy = np.exp(-1j * k * posY * mVec) # (m, 96)
 
-		weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis]
-		conjWeight = np.conj(weight).transpose((0,1,3,2))
+		weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis] # (l,m,96,1)
+		conjWeight = np.conj(weight).transpose((0,1,3,2)) # (l,m,1,96)
 
-		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr
+		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr # (l,m, 1, 96)
 
-		skyView[..., channel] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
+		skyView[..., frame] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
 
 		#for l in range(mVec.size):
 		#	for m in range(lVec.size):
-		#		skyView[l, m, channel] = np.dot(tempProd[l, m], weight[l, m]).real[0, 0]
-		#skyView[..., channel] = np.tensordot(tempProd, weight, ([3],[2])) # Dot products producing 201x201x1x201x201x1 arrays, thanks numpy.
+		#		skyView[l, m, frame] = np.dot(tempProd[l, m], weight[l, m]).real[0, 0]
+		#skyView[..., frame] = np.tensordot(tempProd, weight, ([3],[2])) # Dot products producing 201x201x1x201x201x1 arrays, thanks numpy.
 	return skyView.transpose((1,0,2))
 
 
+def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, calibrationX = None, calibrationY = None):
+	inputCorrelationsX = inputCorrelations[..., 0]
+	inputCorrelationsY = inputCorrelations[..., 1]
+
+	posX = antPos[..., 0]
+	posY = antPos[..., 1]
+
+	frequency = calcFreq(rcuMode, subband) * 1e6
+
+
+	labelOptions = [dateArr, rcuMode, subband, frequency]
+
+	if not lVec:
+		lVec = np.arange(-1., 1. + 0.01, 0.01 ) # Default to 200 pixels
+	if not mVec:
+		mVec = lVec.copy()
+
+	pixels = np.max([lVec.size, mVec.size])
+
+	if mask:
+		mask = np.zeros([lVec.size, mVec.size]).astype(bool)
+		dist = np.sqrt(np.square(np.meshgrid(lVec)) + np.square(np.meshgrid(mVec)).T)
+
+		mask[dist >= 1] = True
+	else:
+		mask = np.zeros([lVec.size, mVec.size]).astype(bool)
+
+	if calibrationX is not None and plotX:
+		inputCorrelationsX = np.conj(np.outer(calibrationX[:, subband], np.conj(calibrationX[:, subband]).T)) * inputCorrelationsX
+	if calibrationY is not None and plotY:
+		inputCorrelationsY = np.conj(np.outer(calibrationY[:, subband], np.conj(calibrationY[:, subband]).T)) * inputCorrelationsY
+
+	### Multithread? Might not need it if it's fast enough.
+	if plotX:
+		labelOptionsX = labelOptions + ['X']
+		allSkyImX, __, __ = __processAllSkyIm(inputCorrelationsX, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptionsX)
+		print("X Polaraisation Processed, begining plotting")
+
+		xFileLoc = []
+		for i in range(allSkyImX.shape[-1]):
+			labelOptionsX[0] = dateArr[i]
+			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels))
+
+		if plotOptions[5]:
+			filePrefix = xFileLoc[0].split(' ')[0]
+			fileSuffix = '_'.join(xFileLoc[0].split('_')[1:])[:-4]
+			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
+			subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  './{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "./{0}{1}.mpg".format(filePrefix, fileSuffix)])
+
+	if plotY:
+		labelOptionsY = labelOptions + ['Y']
+		allSkyImY, __, __ = __processAllSkyIm(inputCorrelationsY, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptionsY)
+		print("Y Polaraisation Processed, begining plotting")
+
+		yFileLoc = []
+		for i in range(allSkyImY.shape[-1]):
+			labelOptionsY[0] = dateArr[i]
+			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels))
+
+		if plotOptions[5]:
+			filePrefix = yFileLoc[0].split(' ')[0]
+			fileSuffix = '_'.join(yFileLoc[0].split('_')[1:])[:-4]
+			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
+			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  './{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "./{0}{1}.mpg".format(filePrefix, fileSuffix)])
+
+
+def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions):
+	allSkyIm = corrToSkyImage(inputCorrelations, posX, posY, frequency, lVec, mVec)
+	allSkyIm = np.rot90(allSkyIm, 3)
+	allSkyIm = np.flipud(allSkyIm)
+	allSkyIm = scipy.ndimage.rotate(allSkyIm, stationRotation, mode = 'constant', cval = 100., reshape = False)
+
+	allSkyIm[mask] = np.nan
+	# Extra returns for if we start multithreading
+	return allSkyIm, plotOptions, labelOptions
+
+def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
+	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite = plotOptions
+	dateTime, rcuMode, subband, frequency, polarity = labelOptions
+
+	if obsSite in ['Birr', 'IE613', 'IE', 'EIRE']:
+		telescopeLoc = astropy.coordinates.EarthLocation( lat = 53.095 * u.deg, lon = -7.9218 * u.deg, height = 100 * u.m )
+	else:
+		telescopeLoc = astropy.coordinates.EarthLocation.of_site(obsSite)
+	latLon = telescopeLoc.to_geodetic()
+
+	if len(dateTime) == 15:
+		dateTime = str(datetime.datetime.strptime(dateTime, '%Y%m%d-%H%M%S'))
+
+	obsTime = astropy.time.Time(dateTime)
+
+	try:
+		knownSources = ['Polaris', 'Cas A', 'Cyg A', 'Galactic Center', 'Tau A', 'Vir A']
+		referenceObject = [astropy.coordinates.SkyCoord.from_name(name) for name in knownSources]
+	
+		knownBodies = ['Sun', 'Jupiter']
+		referenceObject.extend([astropy.coordinates.get_body(sourceName, obsTime, telescopeLoc) for sourceName in knownBodies])
+		knownSources[0] = 'NCP (Polaris)'
+		knownSources.extend(knownBodies)
+	except astropy.coordinates.name_resolve.NameResolutionError:
+		print("Unable to resolve all sources (likely timed out on database lookup), skipping plotting some sources.")
+
+	altAzRef = astropy.coordinates.AltAz(obstime = obsTime, location = telescopeLoc)
+	altAzObjects = [skyObj.transform_to(altAzRef) for skyObj in referenceObject]
+
+	gs = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
+	gs2 = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
+
+	fig = plt.figure(42, figsize = (18, 14))
+	fig.patch.set_facecolor(backgroundColor)
+	plt.suptitle( 'LOFAR mode {0}{1} all sky plot at {2}MHz (sb{3}) for {4}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite), fontsize = 28, color=foregroundColor )#, va = 'top') 
+	plt.rcParams["text.color"] = foregroundColor
+	plt.rcParams["axes.labelcolor"] = foregroundColor
+	plt.rcParams["xtick.color"] =  foregroundColor
+	plt.rcParams["ytick.color"] = foregroundColor
+	plt.rcParams['axes.edgecolor'] = foregroundColor
+	plt.rcParams['axes.linewidth'] = gridThickness
+
+	axImage = fig.add_subplot(gs[0], label = 'ax_image')
+	axImage.axis('off')
+	if logPlot:
+		allSkyImageLog = np.log(allSkyImage)
+		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image' )
+	else:
+		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image' )
+	axImage.axis('off')
+	if colorBar:
+		axColorBar = plt.subplot(gs[1])
+		colorBarObj = plt.colorbar(pltIm, axColorBar)
+
+		axColorBar.tick_params(which = 'minor', length = 2)
+		axColorBar.tick_params(which = 'major', length = 4, width = 1)      
+		axColorBar.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator(10))
+
+		colorBarCursor = axColorBar.plot([0, 1], [0, 0], 'k-')
+	   
+	pltObj = fig.add_subplot(gs2[0], label = 'ax', polar = True)
+
+	axImage.set_xlim((0, pixels))
+	axImage.set_ylim((pixels, 0))
+	pltObj.set_theta_zero_location("N")
+	pltObj.set_theta_direction(1)
+
+	plotStatus = [[True, __plotSkyObject(axImage, skyObj, pixels, skyObjColor, knownSources[idx])] if skyObj.alt.deg > 20. else [False, __plotSkyObject(axImage, skyObj, pixels, skyObjColor, knownSources[idx], offset = True)]  for idx, skyObj in enumerate(altAzObjects)]
+	
+	plt.rcParams["text.color"] = foregroundColor
+	legend = axImage.legend( loc = 8, bbox_to_anchor = ( 0.5, -0.128 ), ncol = 4, framealpha = 0.0, fontsize = 14, title = str(obsTime)[:-4])
+	legend.get_title().set_fontsize('22')
+
+	for idx, skyText in enumerate(legend.get_texts()):
+		if not plotStatus[idx][0]:
+			plt.setp(skyText, color = 'red')
+	radii = []
+
+	for r in range(0, 90, 15): # r grid at 15 degree intervals
+		radii.append(180 * np.cos(r * np.pi/180)) # plot the radii so as to display as an orthographic grid
+		pltObj.set_rgrids(radii)
+	if radialLabelAngle: # you would not want to put y ticks on 0 anyhow as it would be messy
+		yLabel = [ '', '15' + u'\xb0', '30' + u'\xb0', '45' + u'\xb0', '60' + u'\xb0', '75' + u'\xb0' ]
+		pltObj.set_yticklabels(yLabel, color = skyObjColor)
+		pltObj.set_rlabel_position(radialLabelAngle)
+	else:
+		yLabel = []
+		pltObj.set_yticklabels(yLabel)
+
+	thetaticks = np.arange(0, 360, 45)
+	pltObj.set_thetagrids(thetaticks, weight = 'bold', color = skyObjColor, fontsize = 18)
+	pltObj.tick_params('x', pad = -35, rotation = 'auto')
+
+	pltObj.grid(False, 'both', color = skyObjColor, linewidth = gridThickness)
+	pltObj.patch.set(alpha = 0.0)
+	plt.sca(axImage)
+
+	if saveImage:
+		plotFilename = "{0}_{1}_sb{2}_mode{3}{4}_{5}Mhz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6))
+		print("Saving output to {0}".format(plotFilename))
+	 
+		plt.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
+		plt.close(42)
+		return plotFilename
+	else:
+		plt.show()
+		plt.close(42)
+		return
+
+def __plotSkyObject(axIm, skyObj, pixels, skyObjColor, sourceName, offset = False):
+	if not offset:
+		rho = np.sin(np.pi / 2. - skyObj.alt.rad )
+		phi = skyObj.az.rad
+
+		y, x = rho * np.cos(phi), rho * np.sin(phi)
+		x, y = (pixels/2) - (pixels/2) * x, (pixels/2) - (pixels/2) * y
+	else:
+		x = 0. 
+		y = 0.
+
+	skyPlt = axIm.scatter(x, y, color = skyObjColor, marker = 'D', s = 50, label = u"{0} - Az={1}\xb0, El={2}\xb0".format(sourceName, round(skyObj.az.deg, 1), round(skyObj.alt.deg, 1)), alpha = 1)
+	axIm.annotate(sourceName, xy = (x,y), xytext = (x+2,y+2), color = skyObjColor, fontsize = 18)
+
+#logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite = plotOptions
+plotOptions = [False, 'black', .5, 'black', 'white', True, 0, True, 'Birr']

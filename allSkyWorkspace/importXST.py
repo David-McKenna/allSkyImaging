@@ -20,7 +20,6 @@ def importXST(fileName, rcuMode, calibrationFile = None, outputFile = None, grou
 
 	if groupNamePrefix is None:
 		groupNamePrefix = '-'.join(fileName.split('/')[-1].split('_')[:2]) + '/'
-		print(groupNamePrefix)
 
 	with h5py.File(outputFile, 'a') as outputRef:
 		datasetComplexHead = {'processTime': str(datetime.datetime.utcnow())}
@@ -49,13 +48,19 @@ def importXST(fileName, rcuMode, calibrationFile = None, outputFile = None, grou
 		for idx, subband in enumerate(subbandArr):
 			datasetComplex = np.dstack(datasetComplexArr[idx])
 
+			datasetComplexX = datasetComplex[::2, ::2]
+			datasetComplexY = datasetComplex[1::2, 1::2]
+
+			datasetComplex = np.stack([datasetComplexX, datasetComplexY], axis = -1)
+
 			corrDataset = groupRef.require_dataset("{0}/correlationArray".format(subband), datasetComplex.shape, dtype = np.complex128, compression = "lzf")
+			
 			corrDataset[...] = datasetComplex
 
 			offset = 0
+			# Todo: time interpolation for multiple frames in a single file
 			for dtIdx, time in enumerate(dateTimeArr[idx]):
 				corrDataset.attrs.create(str(offset), time)
-				print(idx, dtIdx)
 				offset += reshapeSizeArr[idx][dtIdx]
 
 
