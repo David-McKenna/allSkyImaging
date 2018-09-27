@@ -5,15 +5,37 @@ import ast
 import csv
 import datetime
 
-def importXST(fileName, rcuMode, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
+def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
 	if os.path.isdir(fileName):
 		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if 'xst.dat' in fileVar]
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards.
 		fileName = fileList[0]
 		print(fileList)
+
 	else:
 		fileList = [fileName]
+
+
+	try:
+		testRef = open(fileList[0] + '.log', 'rb')
+		logFiles = True
+	except IOError:
+		print('Unable to open log files,  we will make assumptions for the observation\'s metadata.')
+		logFiles = False
+
+		try:
+			modeApprox = fileList[0].split('mode')[1][:1]
+			modeApprox = int(modeApprox)
+		except (IndexError, ValueError):
+			print('Assuming Mode 3 observation.')
+			modeApprox = 3
+
+		# mode: [mode, subband, integration time]
+		# Assuming one frame per observation for non-logged files
+		metadata = {'1': [1, 100, 5], '2': [2, 100, 5], '3': [3, 100, 5], '4': [4, 100, 5], '5': [5, 200, 10], '6': [6, 200, 10], '7': [7, 200, 10]}
+		metadata = metadata[str(modeApprox)]
+
 
 	if outputFile is None:
 		outputFile = fileName.split('.dat')[0] + '.h5'
@@ -36,32 +58,59 @@ def importXST(fileName, rcuMode, calibrationFile = None, outputFile = None, grou
 				fileNameExtract = fileName.split('_')
 				dateTime = str(datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S'))
 				subbandStr = fileNameExtract[2]
+				if logFiles:
+					with open(logName, 'rb') as logRef:
+						logData = [ast.literal_eval(line.strip('\n').split(' ')[-1]) for line in logRef]
+						logData[2] = datetime.timedelta(seconds = logData[2])
+						logData[3] = datetime.datetime.strptime(logData[3], '%Y/%m/%d@%H:%M:%S')
+						logData[4] = datetime.datetime.strptime(logData[4], '%Y/%m/%d@%H:%M:%S')
+				else:
+					logData = metadata
 
-				dataArr.append(np.array([subbandStr, dateTime, datasetComplex, reshapeSize], dtype = object))
+				dataArr.append(np.array([subbandStr, dateTime, datasetComplex, reshapeSize, logData], dtype = object))
+
 
 		dataArr= np.vstack(dataArr)
 		subbandArr = np.unique(dataArr[:, 0])
 		dateTimeArr = [dataArr[:, 1][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
 		datasetComplexArr = [dataArr[:, 2][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
 		reshapeSizeArr = [list(dataArr[:, 3][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
+		logDataArr = [list(dataArr[:, 4][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
 				
 		for idx, subband in enumerate(subbandArr):
 			datasetComplex = np.dstack(datasetComplexArr[idx])
 
-			datasetComplexX = datasetComplex[::2, ::2]
-			datasetComplexY = datasetComplex[1::2, 1::2]
+			datasetComplexX = datasetComplex[::2, ::2, ...]
 
+			datasetComplexY = datasetComplex[1::2, 1::2, ...]
 			datasetComplex = np.stack([datasetComplexX, datasetComplexY], axis = -1)
-
 			corrDataset = groupRef.require_dataset("{0}/correlationArray".format(subband), datasetComplex.shape, dtype = np.complex128, compression = "lzf")
 			
 			corrDataset[...] = datasetComplex
 
 			offset = 0
-			# Todo: time interpolation for multiple frames in a single file
-			for dtIdx, time in enumerate(dateTimeArr[idx]):
-				corrDataset.attrs.create(str(offset), time)
-				offset += reshapeSizeArr[idx][dtIdx]
+			if logFile:
+				for dtIdx, logData in enumerate(logDataArr[idx]):
+					currDelta = reshapeSizeArr[idx][dtIdx]
+					mode, subband, intTime, startTime, endTime = logData[idx][dtIdx]
+
+					if currDelta > 1:
+						timeArr = [startTime + nTimes * intTime for nTimes in range(currDelta)]
+					else:
+						timeArr = [startTime]
+
+					for i in range(currDelta):
+						corrDataset.attrs.create(str(offset + i), [mode, subband, intTime, timeArr[i]])
+
+					offset += currDelta
+
+			else:
+				# Todo: time interpolation for multiple frames in a single file witohut metadata
+				for dtIdx, time in enumerate(dateTimeArr[idx]):
+					mode, subband, intTime = logData[idx][dtIdx]
+					corrDataset.attrs.create(str(offset), [mode, subband, intTime, time])
+
+					offset += reshapeSizeArr[idx][dtIdx]
 
 
 		if calibrationFile is not None:
@@ -104,6 +153,7 @@ def importXST(fileName, rcuMode, calibrationFile = None, outputFile = None, grou
 			keyValDict = patchKeyValDict(keyValDict)
 			for key, val in keyValDict.items():
 				calDataset.attrs.create(key, val)
+
 	return outputFile, groupNamePrefix
 
 def patchKeyValDict(keyValDict):

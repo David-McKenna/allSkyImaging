@@ -10,6 +10,7 @@ import datetime
 import subprocess
 import numpy as np
 import matplotlib as mpl
+import matplotlib.patheffects as mplPe
 import matplotlib.pyplot as plt
 
 
@@ -83,6 +84,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 			deltaLines = [line for line in hbaDeltasRef]
 
 		arrayDeltas = parseBlitzFile(deltaLines, 'HBADeltas', False)
+
 	
 	if rcuMode in [1, 2, 3, 4]:
 		arrayName = 'LBA'
@@ -338,7 +340,7 @@ def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stat
 	return allSkyIm, plotOptions, labelOptions
 
 def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
-	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite = plotOptions
+	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite, outputFolder = plotOptions
 	dateTime, rcuMode, subband, frequency, polarity = labelOptions
 
 	if obsSite in ['Birr', 'IE613', 'IE', 'EIRE']:
@@ -435,7 +437,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	plt.sca(axImage)
 
 	if saveImage:
-		plotFilename = "{0}_{1}_sb{2}_mode{3}{4}_{5}Mhz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6))
+		plotFilename = "{6}{0}_{1}_sb{2}_mode{3}{4}_{5}Mhz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6), outputFolder)
 		print("Saving output to {0}".format(plotFilename))
 	 
 		plt.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
@@ -458,7 +460,9 @@ def __plotSkyObject(axIm, skyObj, pixels, skyObjColor, sourceName, offset = Fals
 		y = 0.
 
 	skyPlt = axIm.scatter(x, y, color = skyObjColor, marker = 'D', s = 50, label = u"{0} - Az={1}\xb0, El={2}\xb0".format(sourceName, round(skyObj.az.deg, 1), round(skyObj.alt.deg, 1)), alpha = 1)
-	axIm.annotate(sourceName, xy = (x,y), xytext = (x+2,y+2), color = skyObjColor, fontsize = 18)
+	if not offset:
+		textObj = axIm.annotate(sourceName, xy = (x,y), xytext = (x+2,y+2), color = skyObjColor, fontsize = 18)
+		textObj.set_path_effects([mplPe.withStroke(linewidth = 5, foreground = 'w')])
 
 #logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite = plotOptions
-plotOptions = [False, 'black', .5, 'black', 'white', True, 0, True, 'Birr']
+plotOptions = [False, 'black', .5, 'black', 'white', True, 0, True, 'Birr', './']
