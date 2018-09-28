@@ -8,13 +8,29 @@ import astropy.time
 import astropy.units as u
 import datetime
 import subprocess
+import os
 import numpy as np
 import matplotlib as mpl
 import matplotlib.patheffects as mplPe
 import matplotlib.pyplot as plt
 
+from functools import wraps
+import multiprocessing as mp
+
 
 ffmpegLoc = "/cphys/ugrad/2015-16/JF/MCKENND2/Downloads/ffmpeg-4.0.2-64bit-static/ffmpeg"
+
+def cache(function):
+	cachedLookup = {}
+	@wraps(function)
+	def trueFunc(*args):
+		if args in cachedLookup:
+			return cachedLookup[args]
+
+		result = function(*args)
+		cachedLookup[args] = result
+		return result
+	return trueFunc
 
 def calcFreq(rcuMode, subband):
 	baseFreq = 100.0
@@ -239,18 +255,17 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 
 	skyView = np.zeros([lVec.size, mVec.size, frameCount]) # (l,m,nChan)
 	
+	wavelength = c / obsFreq
+	k = (2 * np.pi) / wavelength
+
+	wx = np.exp(-1j * k * posX * lVec) # (l, 96)
+	wy = np.exp(-1j * k * posY * mVec) # (m, 96)
+	weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis] # (l,m,96,1)
+	conjWeight = np.conj(weight).transpose((0,1,3,2)) # (l,m,1,96)
 	# Should be able to fully vectorise this over all channels, should give  a nicespeedup if we pass frames as alternative channels... for another day.
 	for frame in range(frameCount):
 		correlationMatrixChan = correlationMatrix[..., frame] # (96,96)
 		print("Processing Frame {0} of {1} at Frequency {2:.2F}E+06".format(frame + 1, frameCount, obsFreq / 1e6))
-		wavelength = c / obsFreq
-		k = (2 * np.pi) / wavelength
-
-		wx = np.exp(-1j * k * posX * lVec) # (l, 96)
-		wy = np.exp(-1j * k * posY * mVec) # (m, 96)
-
-		weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis] # (l,m,96,1)
-		conjWeight = np.conj(weight).transpose((0,1,3,2)) # (l,m,1,96)
 
 		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr # (l,m, 1, 96)
 
@@ -263,12 +278,32 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 	return skyView.transpose((1,0,2))
 
 
-def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, calibrationX = None, calibrationY = None):
+def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, multiprocessing = True, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, calibrationX = None, calibrationY = None, baselineLimits = None):
 	inputCorrelationsX = inputCorrelations[..., 0]
 	inputCorrelationsY = inputCorrelations[..., 1]
 
 	posX = antPos[..., 0]
 	posY = antPos[..., 1]
+
+	if baselineLimits:
+		print('Test baseline limits.')
+		if not baselineLimits[1]:
+			print('Test no 0th correlations')
+			selections = np.arange(inputCorrelationsX.shape[0])
+			inputCorrelationsX[selections, selections] = 1.
+			inputCorrelationsY[selections, selections] = 1.
+		else:
+			minBaseline, maxBaseline = baselineLimits
+
+			baselines = posX - posY.T
+			print(posX.shape, posY.shape, np.median(np.abs(baselines)), np.percentile(np.abs(baselines), 66),  np.percentile(np.abs(baselines), 75),  np.percentile(np.abs(baselines), 80),  np.percentile(np.abs(baselines), 90))
+			baselines = np.logical_or(np.abs(baselines) > maxBaseline, np.abs(baselines) < minBaseline)
+
+			inputCorrelationsX[baselines] = 0.
+			inputCorrelationsY[baselines] = 0.
+
+
+
 
 	frequency = calcFreq(rcuMode, subband) * 1e6
 
@@ -290,43 +325,59 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 	else:
 		mask = np.zeros([lVec.size, mVec.size]).astype(bool)
 
-	if calibrationX is not None and plotX:
-		inputCorrelationsX = np.conj(np.outer(calibrationX[:, subband], np.conj(calibrationX[:, subband]).T)) * inputCorrelationsX
-	if calibrationY is not None and plotY:
-		inputCorrelationsY = np.conj(np.outer(calibrationY[:, subband], np.conj(calibrationY[:, subband]).T)) * inputCorrelationsY
-
 	### Multithread? Might not need it if it's fast enough.
+	figNum = 0
 	if plotX:
-		labelOptionsX = labelOptions + ['X']
+		if calibrationX is not None:
+			print('Calibrating X for subband {0} from shape {1}'.format(subband, calibrationX.shape))
+			calSubband = calibrationX[:, subband]
+			print(calSubband.shape)
+			calMatrixX = np.outer(calSubband, np.conj(calSubband).T)[..., np.newaxis]
+			print(inputCorrelationsX.shape, calMatrixX.shape)
+			inputCorrelationsX = np.multiply(np.conj(calMatrixX), inputCorrelationsX)
+
+		labelOptionsX = labelOptions + ['X', 0]
 		allSkyImX, __, __ = __processAllSkyIm(inputCorrelationsX, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptionsX)
-		print("X Polaraisation Processed, begining plotting")
+		print("X Polarisation Processed, begining plotting")
 
 		xFileLoc = []
 		for i in range(allSkyImX.shape[-1]):
 			labelOptionsX[0] = dateArr[i]
+			labelOptionsX[-1] = figNum
+			figNum += 1
 			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels))
 
-		if plotOptions[5]:
+		if plotOptions[5] and allSkyImX.shape[-1] > 20:
 			filePrefix = xFileLoc[0].split(' ')[0]
-			fileSuffix = '_'.join(xFileLoc[0].split('_')[1:])[:-4]
+			fileSuffix = '_'.join(xFileLoc[0].split('/')[-1].split('_')[1:])[:-4]
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
-			subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  './{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "./{0}{1}.mpg".format(filePrefix, fileSuffix)])
+			subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
 
 	if plotY:
-		labelOptionsY = labelOptions + ['Y']
+		if calibrationY is not None:
+			print('Calibrating Y for subband {0} from shape {1}'.format(subband, calibrationX.shape))
+			calSubband = calibrationY[:, subband]
+			print(calSubband.shape)
+			calMatrixY = np.outer(calSubband, np.conj(calSubband).T)[..., np.newaxis]
+			print(inputCorrelationsX.shape, calMatrixY.shape)
+			inputCorrelationsY = np.multiply(np.conj(calMatrixY), inputCorrelationsY)
+
+		labelOptionsY = labelOptions + ['Y', 0]
 		allSkyImY, __, __ = __processAllSkyIm(inputCorrelationsY, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptionsY)
-		print("Y Polaraisation Processed, begining plotting")
+		print("Y Polarisation Processed, begining plotting")
 
 		yFileLoc = []
 		for i in range(allSkyImY.shape[-1]):
 			labelOptionsY[0] = dateArr[i]
+			labelOptionsX[-1] = figNum
+			figNum += 1
 			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels))
 
-		if plotOptions[5]:
+		if plotOptions[5] and allSkyImY.shape[-1] > 20:
 			filePrefix = yFileLoc[0].split(' ')[0]
-			fileSuffix = '_'.join(yFileLoc[0].split('_')[1:])[:-4]
+			fileSuffix = '_'.join(yFileLoc[0].split('/')[-1].split('_')[1:])[:-4]
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
-			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  './{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "./{0}{1}.mpg".format(filePrefix, fileSuffix)])
+			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
 
 
 def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions):
@@ -334,14 +385,15 @@ def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stat
 	allSkyIm = np.rot90(allSkyIm, 3)
 	allSkyIm = np.flipud(allSkyIm)
 	allSkyIm = scipy.ndimage.rotate(allSkyIm, stationRotation, mode = 'constant', cval = 100., reshape = False)
-
+	
 	allSkyIm[mask] = np.nan
+
 	# Extra returns for if we start multithreading
 	return allSkyIm, plotOptions, labelOptions
 
 def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite, outputFolder = plotOptions
-	dateTime, rcuMode, subband, frequency, polarity = labelOptions
+	dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 
 	if obsSite in ['Birr', 'IE613', 'IE', 'EIRE']:
 		telescopeLoc = astropy.coordinates.EarthLocation( lat = 53.095 * u.deg, lon = -7.9218 * u.deg, height = 100 * u.m )
@@ -355,15 +407,17 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	obsTime = astropy.time.Time(dateTime)
 
 	try:
-		knownSources = ['Polaris', 'Cas A', 'Cyg A', 'Galactic Center', 'Tau A', 'Vir A']
-		referenceObject = [astropy.coordinates.SkyCoord.from_name(name) for name in knownSources]
+		knownSources = ['Polaris', 'Cas A', 'Cyg A', 'Sgr A', 'Tau A', 'Vir A', 'Cen A', 'Vela']
+		referenceObject = []
+		referenceObject = [cachedSkyCoords(name) for name in knownSources]
 	
 		knownBodies = ['Sun', 'Jupiter']
 		referenceObject.extend([astropy.coordinates.get_body(sourceName, obsTime, telescopeLoc) for sourceName in knownBodies])
 		knownSources[0] = 'NCP (Polaris)'
 		knownSources.extend(knownBodies)
-	except astropy.coordinates.name_resolve.NameResolutionError:
+	except astropy.coordinates.name_resolve.NameResolveError as timeoutException:
 		print("Unable to resolve all sources (likely timed out on database lookup), skipping plotting some sources.")
+		print(timeoutException)
 
 	altAzRef = astropy.coordinates.AltAz(obstime = obsTime, location = telescopeLoc)
 	altAzObjects = [skyObj.transform_to(altAzRef) for skyObj in referenceObject]
@@ -371,7 +425,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	gs = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
 	gs2 = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
 
-	fig = plt.figure(42, figsize = (18, 14))
+	fig = plt.figure(figNum, figsize = (18, 14))
 	fig.patch.set_facecolor(backgroundColor)
 	plt.suptitle( 'LOFAR mode {0}{1} all sky plot at {2}MHz (sb{3}) for {4}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite), fontsize = 28, color=foregroundColor )#, va = 'top') 
 	plt.rcParams["text.color"] = foregroundColor
@@ -385,9 +439,9 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	axImage.axis('off')
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
-		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image' )
+		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image')
 	else:
-		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image' )
+		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image')
 	axImage.axis('off')
 	if colorBar:
 		axColorBar = plt.subplot(gs[1])
@@ -396,8 +450,6 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 		axColorBar.tick_params(which = 'minor', length = 2)
 		axColorBar.tick_params(which = 'major', length = 4, width = 1)      
 		axColorBar.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator(10))
-
-		colorBarCursor = axColorBar.plot([0, 1], [0, 0], 'k-')
 	   
 	pltObj = fig.add_subplot(gs2[0], label = 'ax', polar = True)
 
@@ -437,16 +489,23 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	plt.sca(axImage)
 
 	if saveImage:
-		plotFilename = "{6}{0}_{1}_sb{2}_mode{3}{4}_{5}Mhz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6), outputFolder)
+		if not os.path.exists(outputFolder):
+			os.makedirs(outputFolder)
+
+		plotFilename = "{6}{0}_{1}_sb{2}_mode{3}{4}_{5}MHz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6), outputFolder)
 		print("Saving output to {0}".format(plotFilename))
 	 
-		plt.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
-		plt.close(42)
+		fig.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
+		plt.close(figNum)
 		return plotFilename
 	else:
-		plt.show()
-		plt.close(42)
+		fig.show()
+		plt.close(figNum)
 		return
+
+@cache
+def cachedSkyCoords(name):
+	return astropy.coordinates.SkyCoord.from_name(name)
 
 def __plotSkyObject(axIm, skyObj, pixels, skyObjColor, sourceName, offset = False):
 	if not offset:

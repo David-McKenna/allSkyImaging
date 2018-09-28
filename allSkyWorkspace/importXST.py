@@ -5,36 +5,56 @@ import ast
 import csv
 import datetime
 
-def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
+def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
 	if os.path.isdir(fileName):
 		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if 'xst.dat' in fileVar]
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
-		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards.
+		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
+		if not len(fileList):
+			raise IOError('No files found in provided directory.')
+		folderPath = fileName
 		fileName = fileList[0]
 		print(fileList)
 
 	else:
 		fileList = [fileName]
+		folderPath = os.path.dirname(os.path.abspath(fileName))
 
 
 	try:
 		testRef = open(fileList[0] + '.log', 'rb')
 		logFiles = True
 	except IOError:
-		print('Unable to open log files,  we will make assumptions for the observation\'s metadata.')
+		print('Unable to open log files, we will make assumptions for the observation\'s metadata.')
 		logFiles = False
 
-		try:
-			modeApprox = fileList[0].split('mode')[1][:1]
-			modeApprox = int(modeApprox)
-		except (IndexError, ValueError):
-			print('Assuming Mode 3 observation.')
-			modeApprox = 3
+		if not rcuMode:
+			try:
+				print('Attempting to guess mode from path name')
+				modeApprox = fileList[0].split('mode')[1][:1]
+				modeApprox = int(modeApprox)
+				print(modeApprox)
+			except (IndexError, ValueError):
+				print('Assuming Mode 3 observation.')
+				modeApprox = 3
+			rcuMode = modeApprox
+		else:
+			print('Using provided rcu mode, {0}'.format(rcuMode))
+			modeApprox = rcuMode
 
 		# mode: [mode, subband, integration time]
 		# Assuming one frame per observation for non-logged files
 		metadata = {'1': [1, 100, 5], '2': [2, 100, 5], '3': [3, 100, 5], '4': [4, 100, 5], '5': [5, 200, 10], '6': [6, 200, 10], '7': [7, 200, 10]}
 		metadata = metadata[str(modeApprox)]
+
+	if 'HBA_elements.log' in os.listdir(folderPath):
+		with open(os.path.join(folderPath, 'HBA_elements.log')) as actRef:
+			fileLines = [line for line in actRef]
+			#assert(np.array(['Traceback' not in line for line in fileLines]).all())
+			
+			## TODO
+			
+
 
 
 	if outputFile is None:
@@ -66,6 +86,7 @@ def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, g
 						logData[4] = datetime.datetime.strptime(logData[4], '%Y/%m/%d@%H:%M:%S')
 				else:
 					logData = metadata
+					logData[1] = int(subbandStr[2:])
 
 				dataArr.append(np.array([subbandStr, dateTime, datasetComplex, reshapeSize, logData], dtype = object))
 
@@ -89,7 +110,7 @@ def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, g
 			corrDataset[...] = datasetComplex
 
 			offset = 0
-			if logFile:
+			if logFiles:
 				for dtIdx, logData in enumerate(logDataArr[idx]):
 					currDelta = reshapeSizeArr[idx][dtIdx]
 					mode, subband, intTime, startTime, endTime = logData[idx][dtIdx]
@@ -107,7 +128,7 @@ def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, g
 			else:
 				# Todo: time interpolation for multiple frames in a single file witohut metadata
 				for dtIdx, time in enumerate(dateTimeArr[idx]):
-					mode, subband, intTime = logData[idx][dtIdx]
+					mode, subband, intTime = logDataArr[idx][dtIdx]
 					corrDataset.attrs.create(str(offset), [mode, subband, intTime, time])
 
 					offset += reshapeSizeArr[idx][dtIdx]
@@ -154,7 +175,7 @@ def importXST(fileName, rcuMode = , calibrationFile = None, outputFile = None, g
 			for key, val in keyValDict.items():
 				calDataset.attrs.create(key, val)
 
-	return outputFile, groupNamePrefix
+	return outputFile, groupNamePrefix, rcuMode
 
 def patchKeyValDict(keyValDict):
 	keyValDict['ObservationMode'] = int(keyValDict['ObservationMode'])
