@@ -100,6 +100,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 			deltaLines = [line for line in hbaDeltasRef]
 
 		arrayDeltas = parseBlitzFile(deltaLines, 'HBADeltas', False)
+		np.save('./hbadeltas.npy', arrayDeltas)
 
 	
 	if rcuMode in [1, 2, 3, 4]:
@@ -115,6 +116,8 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 
 	posX = antLocs[:, 0, :]
 	posY = antLocs[:, 1, :]
+
+	np.save('antLoc.npy', np.stack([posX, posY], axis = -1))
 
 	if activeElems:
 		posX += arrayDeltas[activeElements]
@@ -302,11 +305,7 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 			inputCorrelationsX[baselines] = 0.
 			inputCorrelationsY[baselines] = 0.
 
-
-
-
 	frequency = calcFreq(rcuMode, subband) * 1e6
-
 
 	labelOptions = [dateArr, rcuMode, subband, frequency]
 
@@ -326,7 +325,11 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 		mask = np.zeros([lVec.size, mVec.size]).astype(bool)
 
 	### Multithread? Might not need it if it's fast enough.
+	### Either way, this should be abtracted to a higher degree.
 	figNum = 0
+	returnVar = {}
+
+
 	if plotX:
 		if calibrationX is not None:
 			print('Calibrating X for subband {0} from shape {1}'.format(subband, calibrationX.shape))
@@ -352,6 +355,9 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 			fileSuffix = '_'.join(xFileLoc[0].split('/')[-1].split('_')[1:])[:-4]
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
 			subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
+
+		returnVar['X'] = allSkyImX
+		print(returnVar)
 
 	if plotY:
 		if calibrationY is not None:
@@ -379,6 +385,38 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
 			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
 
+		returnVar['Y'] = allSkyImY
+		print(returnVar)
+
+	print(returnVar)
+
+	return returnVar
+
+def __processCorrPlot():
+	if calibrationArr is not None:
+		print('Calibrating {0} for subband {1} from shape {2}'.format(polChar, subband, calibrationX.shape))
+		calSubband = calibrationArr[:, subband]
+		calMatrixArr = np.outer(calSubband, np.conj(calSubband).T)[..., np.newaxis]
+		inputCorrelations = np.multiply(np.conj(calMatrixArr), inputCorrelations)
+
+	labelOptions = labelOptions + [polChar, 0]
+	allSkyIm, __, __ = __processAllSkyIm(inputCorrelationsArr, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions)
+	print("{0} Polarisation Processed, begining plotting".format(polChar))
+
+	fileLoc = []
+	for i in range(allSkyIm.shape[-1]):
+		labelOptions[0] = dateArr[i]
+		labelOptions[-1] = figNum
+		figNum += 1
+		fileLoc.append(plotAllSkyImage(allSkyIm[..., i], plotOptions, labelOptions, pixels))
+
+	if plotOptions[5] and allSkyIm.shape[-1] > 20:
+		filePrefix = fileLoc[0].split(' ')[0]
+		fileSuffix = '_'.join(fileLoc[0].split('/')[-1].split('_')[1:])[:-4]
+		print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
+		subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
+
+	#return __, __, __...
 
 def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions):
 	allSkyIm = corrToSkyImage(inputCorrelations, posX, posY, frequency, lVec, mVec)

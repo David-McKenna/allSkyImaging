@@ -59,6 +59,8 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 
 	if outputFile is None:
 		outputFile = fileName.split('.dat')[0] + '.h5'
+	elif not '/' in outputFile:
+		outputFile = '/'.join(fileName.split('/')[:-1]) + '/' + outputFile
 
 	if groupNamePrefix is None:
 		groupNamePrefix = '-'.join(fileName.split('/')[-1].split('_')[:2]) + '/'
@@ -72,7 +74,10 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 			with open(fileName, 'rb') as dataRef:
 				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
 				reshapeSize = datasetComplex.size / (192 ** 2)
-				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, order = 'F')
+				if datasetComplex.size < 1000:
+					continue
+				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, 
+order = 'F')
 
 				fileName = fileName.split('/')[-1]
 				fileNameExtract = fileName.split('_')

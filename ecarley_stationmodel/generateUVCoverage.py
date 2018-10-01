@@ -34,13 +34,19 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 			{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
 			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
 			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
+randWalk = [12, 15,  5,  0,  3,  2,  3,  7,  9,  3,  5,  2,  4,  7,  6,  3,  8,
+       12, 10,  1,  6,  7,  7, 14,  8,  1,  5,  9, 13,  8,  9, 13,  3,  0,
+        3,  5,  4, 15, 15,  3,  2, 15,  8,  1,  3, 13,  3,  3, 14,  7,  0,
+        1,  9,  9, 15,  0, 15, 10,  4,  7,  3, 14, 14,  2,  7, 12,  2,  0,
+        0,  8,  5,  5,  6,  8,  4,  1, 10,  4, 10,  5, 10, 15,  8,  9,  1,
+        7,  9,  0,  9,  6,  7,  3, 14, 13, 11,  0]
 
-Effelsberg_elements_20091110 = 
+Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
 Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
 custom_debug = (range(16) * 8)[:len(Effelsberg_elements_20091110)]
 
 global activationSchemes
-activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug]
+activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug, randWalk]
 
 def eq2top_m(ha, dec):
 	"""Return the 3x3 matrix converting equatorial coordinates to topocentric
@@ -610,6 +616,8 @@ def mainCall(opts, args):
 	hbaRcuMode = opts.hba_rcu_mode
 	hbaLatLongEle = getLatLongElevation(antArrFile, 'IE613HBA')
 
+	if len(hbaActivation) == 1:
+		hbaActivation = int(hbaActivation)
 	if hbaActivation is not None:
 		if hbaActivation in [0, '0', 'effelsberg', 'eff', 'effels']:
 			hbaActivation = 0
@@ -622,6 +630,8 @@ def mainCall(opts, args):
 		elif hbaActivation in [2, '2', 'debug', 'db', 'dbg']:
 			hbaActivation = 2
 			hbaActStr = '_Debug'
+		elif isinstance(hbaActivation, int):
+			hbaActStr = '_unknown'
 		else:
 			raise LookupError("Unknown Activation Scheme {0}!".format(hbaActivation))
 	else:
@@ -798,6 +808,69 @@ def mainCall(opts, args):
 #ffmpeg -y -r 20 -i image_%03d.png -vb 50M IE613_uv_coverage_sun.mpg    
 	
 #########################################################   
+def mainCallBreakThings(opts, args):
+
+	# Extract parameters
+	fftType = opts.fftType
+	assert(fftType in [None, 'gaus', 'rect', 'rectgaus'])
+
+	pltLBA = opts.LBA
+	pltHBA = opts.HBA
+	hbaActivation = opts.HBA_act
+	obsTime = opts.time
+	pixels = opts.pixels
+	timeStep = float(opts.ts) * 60.
+	outputFolder = opts.output_folder
+	enableMp = opts.mp
+	maskVar = opts.mask
+
+	antFieldFile, antArrFile, hbaDeltas = initialiseLocalFiles(args)
+	print("Files detected or acquired")
+
+	lbaRcuMode = opts.lba_rcu_mode
+	lbaLatLongEle = getLatLongElevation(antArrFile, 'IE613LBA')
+
+	hbaRcuMode = opts.hba_rcu_mode
+	hbaLatLongEle = getLatLongElevation(antArrFile, 'IE613HBA')
+
+	obsTime = '06/21'
+
+	obsTime = "2018/{0} 15:00:00".format(obsTime) # Used to determine previous sunrise / next sunset
+
+	uvwLBA, freqLBA, refTime, endTime, xyzLBA, obsLBA, sunLBAObj, sourceObjLBA = antProc(antFieldFile, antArrFile, lbaRcuMode, obsTime)
+	obs = obsLBA
+	sunObj = sunLBAObj
+
+	px=[pixels,pixels]
+	fov=np.pi    #Field of View in radians
+	res=fov/px[0]   #pixel resolution
+	dummy = 0.0   
+	processes = mp.cpu_count() - 1
+	mpPool = mp.Pool(processes = processes)
+	obs.date = refTimeUtc + datetime.timedelta(hours = 6)
+	sunObj.compute(obs)
+	colIdx = 2
+	while True:
+		for i in range(200):
+			uvwHBA, freqHBA, __, __, xyzHBA, obsHBA, sunHBAObj, sourceObjHBA = antProc(antFieldFile, antArrFile, hbaRcuMode, obsTime, ['random', hbaDeltas])
+
+		uvwHBA = processUVCoverage(idx, sunHBAObj, obs, xyzHBA, sourceObjHBA, obsHBA, freqHBA, colIdx, subplotTuple, 'HBA')
+
+		hbaRet.append([idx, mpCheckAndCallFT(idx, dummy, uvwHBA, px, res, fftType, maskVar, mpPool)])
+
+
+
+		mpPool.close()
+		mpPool.join()
+
+
+		if pltHBA:
+			for idx, asyncCallback in hbaRet:
+				hbaImg = asyncCallback.get()
+				beamPlot(idx, hbaImg, dummy, pixels, freqHBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA')
+
+	plt.close('all')
+
 
 print("Initialisation of functions Complete")
 

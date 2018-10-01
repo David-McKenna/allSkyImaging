@@ -13,6 +13,12 @@ import csv
 import os
 
 from astropy.coordinates import SkyCoord
+randWalk =[12, 15,  5,  0,  3,  2,  3,  7,  9,  3,  5,  2,  4,  7,  6,  3,  8,
+       12, 10,  1,  6,  7,  7, 14,  8,  1,  5,  9, 13,  8,  9, 13,  3,  0,
+        3,  5,  4, 15, 15,  3,  2, 15,  8,  1,  3, 13,  3,  3, 14,  7,  0,
+        1,  9,  9, 15,  0, 15, 10,  4,  7,  3, 14, 14,  2,  7, 12,  2,  0,
+        0,  8,  5,  5,  6,  8,  4,  1, 10,  4, 10,  5, 10, 15,  8,  9,  1,
+        7,  9,  0,  9,  6,  7,  3, 14, 13, 11,  0]
 
 Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
 Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
@@ -83,6 +89,7 @@ def plotTiles(lengths, titleVar = "HBA Activations", separationLines = False):
 		yOffset -= 5.15
 
 	plt.title(titleVar)
+	plt.savefig('./{0}.png'.format(titleVar))
 
 	#plt.savefig("{0}.png".format(titleVar.strip(" ")))
 	return np.array(antLoc)
@@ -232,7 +239,7 @@ def plotTitleSave(dataX, dataY, title, scatterSize = None):
 	    title (string): Plot title, name of saved file (without .png suffix)
 	    scatterSize (float-like, optional): Size of scatter points
 	"""
-	plt.figure()
+	plt.figure(figsize = (20, 20))
 	plt.title(title)
 	if scatterSize:
 		plt.scatter(dataX, dataY, s = scatterSize)
@@ -248,19 +255,24 @@ if __name__ == '__main__':
 	effelsPlotVar = populateSelections(listOfAnt, Effelsberg_elements_20091110)
 	genericPlotVar = populateSelections(listOfAnt, Generic_International_Station_20091110)
 	debugPlotVar = populateSelections(listOfAnt, custom_debug)
+	debugWalkPlotVar = populateSelections(listOfAnt, randWalk)
 
 	antLocEffels = plotTiles(effelsPlotVar, "HBA Activations using the Effelsberg Scheme", True)
 	antLocGeneric = plotTiles(genericPlotVar, "HBA Activations using the Generic Scheme", True)
 	antLocDebug = plotTiles(debugPlotVar, "HBA Activations for the Debug Scheme", True)
+	antLocDebugWalk = plotTiles(debugWalkPlotVar, "HBA Activations for the Debug Random Walk Scheme", True)
 
 	baselinesEffels = getBaselines(antLocEffels)
 	baselinesGeneric = getBaselines(antLocGeneric)
-	__, __, lbaLoc = getAntMap('DE601')
-	effelsLBABaselines = getBaselines(lbaLoc)
+	baselinesWalk = getBaselines(antLocDebugWalk)
+
+	#__, __, lbaLoc = getAntMap('DE601')
+	#effelsLBABaselines = getBaselines(lbaLoc)
 
 	plotTitleSave(baselinesEffels[:, 0], baselinesEffels[:, 1], "Snapshot Baselines for Effelsberg Scheme", 5)
 	plotTitleSave(baselinesGeneric[:, 0], baselinesGeneric[:, 1], "Snapshot Baselines for Generic Scheme", 5)
-	plotTitleSave(lbaLoc[:, 0], lbaLoc[:, 1], "Effelsberg LBA Station")
-	plotTitleSave(effelsLBABaselines[:, 0], effelsLBABaselines[:, 1], "Effelsberg LBA Baselines", 2.)
+	plotTitleSave(baselinesWalk[:, 0], baselinesWalk[:, 1], "Snapshot Baselines for Random Walk Scheme", 5)
+	#plotTitleSave(lbaLoc[:, 0], lbaLoc[:, 1], "Effelsberg LBA Station")
+	#plotTitleSave(effelsLBABaselines[:, 0], effelsLBABaselines[:, 1], "Effelsberg LBA Baselines", 2.)
 
 	plt.show()
