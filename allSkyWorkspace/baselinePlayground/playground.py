@@ -77,10 +77,12 @@ def initThread(i, seed, antPos, hbaDelta):
 		stepCheckpoint[...] = activationChoice
 
 		prevCost = costFunc(arrayLayout)
-		#prevCost = 1e16
+		#globalMin = 0
+		prevCost = 1e16
+		globalMin = 1e16
 		stepCheckpoint.attrs.create('cost', prevCost)
 
-		stepsPerLoop = 64
+		stepsPerLoop = 256
 		changesPerStep = 16
 		while True:
 			activationSwap = np.random.randint(0, 16, (stepsPerLoop, changesPerStep))
@@ -97,17 +99,23 @@ def initThread(i, seed, antPos, hbaDelta):
 
 				newCost = costFunc(arrayLayout)
 
-				#beamIm = dftImage(arrayLayout)
-				#newCost = costFuncDFT(beamIm)
+				beamIm = dftImage(arrayLayout)
+				newCost = costFuncDFT(beamIm)
 
 				print(newCost, prevCost)
 
 				if newCost < prevCost:
 					print('Changed 0')
 					prevCost = newCost
+
+					if prevCost < globalMin:
+						globalMin = prevCost
+						stepCheckpoint = checkpointRef.create_dataset(str(stepCount), (arraySize,), compression = 'lzf', dtype = np.int8)
+						stepCheckpoint[...] = activationChoice
+						stepCheckpoint.attrs.create('cost', globalMin)
 					continue
 				else:
-					if probFlip(prevCost, newCost) > 0.9:
+					if probFlip(prevCost, newCost) > np.random.rand(1):
 						print('Changed 1')
 						prevCost = newCost
 						continue
@@ -121,8 +129,11 @@ def initThread(i, seed, antPos, hbaDelta):
 
 			prevCost = costFunc(arrayLayout)
 			stepCheckpoint.attrs.create('cost', prevCost)
-			changesPerStep -= 3
+			changesPerStep -= 4
 			changesPerStep = max(changesPerStep, 1)
+
+			if stepCount > 100000:
+				return
 
 #@jit(nopython=True, parallel=True)
 def dftImage(uvw,px=[100, 100],res=100 / np.pi,mask=False):
