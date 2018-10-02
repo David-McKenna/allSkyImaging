@@ -12,6 +12,8 @@ defaultField = '/cphys/ugrad/2015-16/JF/MCKENND2/allSkyDump/allSkyDump/Config_Ca
 plotOptions = [True, 'black', .5, 'black', 'white', True, 0, True, 'Birr', 'None']
 
 
+reload(importXST)
+reload(allSkyImager)
 # Extract data from blitz so we don't have to keep referencing them? Store them in the h5 on initial processing?
 def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
 	defaultDeltas, defaultField = checkRequiredFiles()
@@ -21,7 +23,8 @@ def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, d
 
 	posX = posXPol[:, 0, np.newaxis]
 	posY = posYPol[:, 1, np.newaxis]
-	antPos = np.dstack([posX, posY])
+	posZ = posXPol[:, 2, np.newaxis]
+	antPos = np.dstack([posX, posY, posZ])
 
 	if not plotOptions[-1]:
 		plotOptions[-1] = '/'.join(outputFile.split('/')[:-1]) + '/'
@@ -34,8 +37,9 @@ def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, d
 
 		if 'calibrationArray' in corrRef[groupPrefix]:
 			print('Extracting Calibrations')
-			corrGroup = '{0}calibrationArray'.format(groupPrefix)
-			calibrationX, calibrationY = corrRef[corrGroup][..., 0], corrRef[corrGroup][..., 1]
+			corrGroup = corrRef['{0}calibrationArray'.format(groupPrefix)]
+			print(corrGroup.shape)
+			calibrationX, calibrationY = corrGroup[..., 0], corrGroup[..., 1]
 		else:
 			calibrationX, calibrationY = None, None
 

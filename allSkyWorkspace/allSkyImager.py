@@ -477,9 +477,13 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	axImage.axis('off')
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
-		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image')
+		vminVar = np.nanpercentile(allSkyImageLog, 99)
+		vmaxVar = np.nanpercentile(allSkyImageLog, 5)
+		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	else:
-		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image')
+		vminVar = np.nanpercentile(allSkyImage, 99)
+		vmaxVar = np.nanpercentile(allSkyImage, 5)
+		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	axImage.axis('off')
 	if colorBar:
 		axColorBar = plt.subplot(gs[1])
