@@ -7,14 +7,14 @@ import datetime
 
 def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
 	if os.path.isdir(fileName):
-		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if 'xst.dat' in fileVar]
+		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if ('xst.dat' in fileVar) and not ('.log' in fileVar)]
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
 		if not len(fileList):
 			raise IOError('No files found in provided directory.')
 		folderPath = fileName
 		fileName = fileList[0]
-		print(fileList)
+		#print(fileList)
 
 	else:
 		fileList = [fileName]
@@ -23,7 +23,8 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 
 	try:
 		testRef = open(fileList[0] + '.log', 'rb')
-		logFiles = True
+		logFiles = False # Debug ast later...
+		raise IOError
 	except IOError:
 		print('Unable to open log files, we will make assumptions for the observation\'s metadata.')
 		logFiles = False
@@ -75,20 +76,32 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
 				reshapeSize = datasetComplex.size / (192 ** 2)
 				if datasetComplex.size < 1000:
+					print('IMCOMPLETE FILE SKIPPED: {0}'.format(fileName))
 					continue
 				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, 
 order = 'F')
 
-				fileName = fileName.split('/')[-1]
-				fileNameExtract = fileName.split('_')
+				fileNameMod = fileName.split('/')[-1]
+				fileNameExtract = fileNameMod.split('_')
 				dateTime = str(datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S'))
 				subbandStr = fileNameExtract[2]
-				if logFiles:
+				if False:
+				#if logFiles:
+					logName = fileName + '.log'
 					with open(logName, 'rb') as logRef:
-						logData = [ast.literal_eval(line.strip('\n').split(' ')[-1]) for line in logRef]
-						logData[2] = datetime.timedelta(seconds = logData[2])
-						logData[3] = datetime.datetime.strptime(logData[3], '%Y/%m/%d@%H:%M:%S')
-						logData[4] = datetime.datetime.strptime(logData[4], '%Y/%m/%d@%H:%M:%S')
+						logData = [] # AST debug...
+						print(logRef)
+						for line in logRef:
+							print(line)
+							#logData.append(ast.literal_eval(line.split(' ')[-1]))
+						print(logName)
+						#logData = [ast.literal_eval(line.split(' ')[-1].strip('\n')) for line in logRef]
+						#assert(logData[0] == rcuMode)
+						#assert(logData[1] == int(subband[2:]))
+						#logData[2] = datetime.timedelta(seconds = logData[2])
+						#logData[3] = datetime.datetime.strptime(logData[3], '%Y/%m/%d@%H:%M:%S')
+						#logData[4] = datetime.datetime.strptime(logData[4], '%Y/%m/%d@%H:%M:%S')
+
 				else:
 					logData = metadata
 					logData[1] = int(subbandStr[2:])

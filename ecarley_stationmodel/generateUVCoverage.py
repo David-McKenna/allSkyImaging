@@ -34,6 +34,7 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 			{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
 			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
 			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
+			
 randWalk = [ 0,  2,  7,  5,  7,  9,  5, 15,  3, 11, 15, 15,  2,  1,  3,  6,  6,
         6, 15, 11, 15,  2,  0,  0,  6, 11, 14, 14,  7,  7, 15, 12,  7,  4,
         1,  2,  0, 10,  9,  5, 10, 13, 14,  1,  0,  2,  4,  5,  2,  0, 11,
