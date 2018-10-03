@@ -449,10 +449,11 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 		referenceObject = []
 		referenceObject = [cachedSkyCoords(name) for name in knownSources]
 	
-		knownBodies = ['Sun', 'Jupiter']
+		knownBodies = ['Sun', 'Jupiter', 'Moon', 'Uranus', 'Neptune']
 		referenceObject.extend([astropy.coordinates.get_body(sourceName, obsTime, telescopeLoc) for sourceName in knownBodies])
 		knownSources[0] = 'NCP (Polaris)'
 		knownSources.extend(knownBodies)
+
 	except astropy.coordinates.name_resolve.NameResolveError as timeoutException:
 		print("Unable to resolve all sources (likely timed out on database lookup), skipping plotting some sources.")
 		print(timeoutException)

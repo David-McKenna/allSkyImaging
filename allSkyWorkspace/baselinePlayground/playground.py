@@ -28,22 +28,24 @@ def costFunc(arrayPos):
 
 	return deltaBaselines
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def costFuncDFT(beamIm):
 	beamShape = beamIm.shape
-	beamIm[beamShape[0] - 5: beamShape[0] + 5, beamShape[1] - 5: beamShape[1] + 5] = 0.
-	beamSize = beamIm.size
+	initMax = np.max(beamIm)
+	beamIm[beamIm > initMax / (2. * np.e) ] = 0.
 
-	beamSub = np.percentile(beamIm, 66)
-	beamMax = beamIm.max()
-	print(beamSize, beamSub, beamMax)
-	return beamSize * beamMax - 0.8 * beamSize * beamSub
+	postMax = np.max(beamIm)
+	beamIm[beamIm > postMax / (2. * np.e) ] = 0.
+
+	finalMax = np.max(beamIm)
+	finalAvg = np.mean(beamIm)
+	return postMax + finalMax + finalAvg - initMax
 
 global tempConst
-tempConst = collections.deque([1.], maxlen = 128)
-def probFlip(deltaSumOrig, deltaSumNew):
+tempConst = collections.deque([1e16], maxlen = 128)
+def probFlip(deltaSumOrig, deltaSumNew, currLen):
 	deltaDiff = (deltaSumNew - deltaSumOrig)
-	tempAvg = 3. * max(tempConst)
+	tempAvg = 1.
 	expTerm = np.exp(-1. * deltaDiff / tempAvg)
 
 	tempConst.append(deltaDiff)
@@ -97,7 +99,7 @@ def initThread(i, seed, antPos, hbaDelta):
 				arrayLayout[antIdx] = antPos[antIdx] + hbaDelta[actIdx]
 				activationChoice[antIdx] = actIdx
 
-				newCost = costFunc(arrayLayout)
+				#newCost = costFunc(arrayLayout)
 
 				beamIm = dftImage(arrayLayout)
 				newCost = costFuncDFT(beamIm)
@@ -115,7 +117,7 @@ def initThread(i, seed, antPos, hbaDelta):
 						stepCheckpoint.attrs.create('cost', globalMin)
 					continue
 				else:
-					if probFlip(prevCost, newCost) > np.random.rand(1):
+					if probFlip(prevCost, newCost, changesPerStep) > np.random.rand(1):
 						print('Changed 1')
 						prevCost = newCost
 						continue
@@ -164,7 +166,7 @@ def jitDFT(im, px, u, v, mid_k, mid_l):
 			im[k,l] = np.sum(np.exp(-2.*np.pi*1j*((u*(k-mid_k)) + (v*(l-mid_l)))))
 	return im
 
-@jit(nopython=True,parallel=True)
+#@jit(nopython=True,parallel=True)
 def getBaselines(antLoc):
 	baselines = []
 	for idx in range(len(antLoc)):

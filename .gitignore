@@ -1,3 +1,11 @@
 *.pyc
-/allSky*
-/ecarley_stationmodel/stationmodelenv/*
+*.png
+*.mpg
+*.mp4
+*.h5
+*.npy
+ecarley_stationmodel/stationmodelenv/*
+*.dat
+*.log
+allSkyMonitor/*
+allSkyMonitor*

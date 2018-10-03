@@ -7,7 +7,7 @@ import datetime
 
 def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
 	if os.path.isdir(fileName):
-		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if ('xst.dat' in fileVar) and not ('.log' in fileVar)]
+		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if fileVar.endswith('xst.dat')]
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
 		if not len(fileList):
@@ -76,8 +76,9 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
 				reshapeSize = datasetComplex.size / (192 ** 2)
 				if datasetComplex.size < 1000:
-					print('IMCOMPLETE FILE SKIPPED: {0}'.format(fileName))
+					print('INCOMPLETE FILE SKIPPED: {0}'.format(fileName))
 					continue
+
 				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, 
 order = 'F')
 
