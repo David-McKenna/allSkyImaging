@@ -1,7 +1,8 @@
 
 import h5py
 import numpy as np
-import allSkyImager
+#import allSkyImager_wproj as allSkyImager
+import allSkyImager as allSkyImager
 import importXST
 import os
 
@@ -15,10 +16,25 @@ plotOptions = [True, 'black', .5, 'black', 'white', True, 0, True, 'Birr', 'None
 reload(importXST)
 reload(allSkyImager)
 # Extract data from blitz so we don't have to keep referencing them? Store them in the h5 on initial processing?
-def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
+def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
 	defaultDeltas, defaultField = checkRequiredFiles()
 
-	outputFile, groupPrefix, rcuMode = importXST.importXST(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
+	if obsType.lower() == 'xst':
+		outputFile, groupPrefix, rcuMode = importXST.importXST(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
+	elif obsType.lower() == 'acc':
+		
+		# In the case we have been provided a folder of ACC files, run recursively to process them. 
+		if os.path.isdir(fileName):
+			fileList, __, __ = processInputLocation(fileName, 'acc')
+			for fileName in fileList:
+				main(fileName, obsType = 'ACC', breakThings, rcuMode, subbandArr, deltasLoc, fieldLoc, plotOptions, activation, calLoc, outputH5Loc, baselineLimits)
+
+			return
+
+		outputFile, groupPrefix, rcuMode = importXST.importACC(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
+	else:
+		raise RuntimeError('Unknown observation file type.')
+
 	posXPol, posYPol, __, __, __, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
 
 	posX = posXPol[:, 0, np.newaxis]
@@ -30,10 +46,13 @@ def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, d
 		plotOptions[-1] = '/'.join(outputFile.split('/')[:-1]) + '/'
 
 	with h5py.File(outputFile, 'r+') as corrRef:
-		if subbandArr == None:
-			subbandArr = [subbandInt[0][2:] for subbandInt in corrRef[groupPrefix].items() if 'sb' in subbandInt[0]]
-		elif instanceof(subbandArr, int):
-			subbandArr = [subband]
+		if obsType != 'acc':
+			if subbandArr == None:
+				subbandArr = [subbandInt[0][2:] for subbandInt in corrRef[groupPrefix].items() if 'sb' in subbandInt[0]]
+			elif instanceof(subbandArr, int):
+				subbandArr = [subband]
+		else:
+			subbandArr = np.arange(512)
 
 		if 'calibrationArray' in corrRef[groupPrefix]:
 			print('Extracting Calibrations')
@@ -44,8 +63,10 @@ def main(fileLocation, breakThings = False, rcuMode = None, subbandArr = None, d
 			calibrationX, calibrationY = None, None
 
 		for subbandVal in subbandArr:
-			corrArr = corrRef['{0}sb{1}/correlationArray'.format(groupPrefix, subbandVal)]
-
+			if obsType != 'acc':
+				corrArr = corrRef['{0}sb{1}/correlationArray'.format(groupPrefix, subbandVal)]
+			else:
+				corrArr = corrRef['{0}/correlationArray'.format(groupPrefix)]
 			datesArr = np.vstack(corrArr.attrs.values()).astype(str)[:, -1]
 
 			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits)

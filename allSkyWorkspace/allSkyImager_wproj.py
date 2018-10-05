@@ -488,7 +488,8 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
 		vminVar = np.nanpercentile(allSkyImageLog, 99)
-		vmaxVar = np.nanpercentile(allSkyImageLog, 5)
+		vmaxVar = np.nanpercentile(allSkyImageLog, 15)
+
 		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	else:
 		vminVar = np.nanpercentile(allSkyImage, 99)

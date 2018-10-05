@@ -6,20 +6,8 @@ import csv
 import datetime
 
 def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
-	if os.path.isdir(fileName):
-		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if fileVar.endswith('xst.dat')]
-		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
-		fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
-		if not len(fileList):
-			raise IOError('No files found in provided directory.')
-		folderPath = fileName
-		fileName = fileList[0]
-		#print(fileList)
-
-	else:
-		fileList = [fileName]
-		folderPath = os.path.dirname(os.path.abspath(fileName))
-
+	fileList, fileName, folderPath = processInputLocation(fileName, dataTypr = 'XST')
+	fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
 
 	try:
 		testRef = open(fileList[0] + '.log', 'rb')
@@ -29,31 +17,17 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 		print('Unable to open log files, we will make assumptions for the observation\'s metadata.')
 		logFiles = False
 
-		if not rcuMode:
-			try:
-				print('Attempting to guess mode from path name')
-				modeApprox = fileList[0].split('mode')[1][:1]
-				modeApprox = int(modeApprox)
-				print(modeApprox)
-			except (IndexError, ValueError):
-				print('Assuming Mode 3 observation.')
-				modeApprox = 3
-			rcuMode = modeApprox
-		else:
-			print('Using provided rcu mode, {0}'.format(rcuMode))
-			modeApprox = rcuMode
+		rcuMode = rcuMode or processRCUMode(rcuMode, folderPath)
 
 		# mode: [mode, subband, integration time]
 		# Assuming one frame per observation for non-logged files
 		metadata = {'1': [1, 100, 5], '2': [2, 100, 5], '3': [3, 100, 5], '4': [4, 100, 5], '5': [5, 200, 10], '6': [6, 200, 10], '7': [7, 200, 10]}
-		metadata = metadata[str(modeApprox)]
+		metadata = metadata[str(rcuMode)]
 
 	if 'HBA_elements.log' in os.listdir(folderPath):
 		with open(os.path.join(folderPath, 'HBA_elements.log')) as actRef:
 			fileLines = [line for line in actRef]
-			#assert(np.array(['Traceback' not in line for line in fileLines]).all())
-			
-			## TODO
+			#activation = processHBALog(fileLines)
 			
 
 
@@ -195,6 +169,149 @@ order = 'F')
 				calDataset.attrs.create(key, val)
 
 	return outputFile, groupNamePrefix, rcuMode
+
+def importACC(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): 
+	fileList, fileName, folderPath = processInputLocation(fileName, dataType = 'ACC')
+	rcuMode = rcuMode or processRCUMode(rcuMode, folderPath)
+
+	if 'HBA_elements.log' in os.listdir(folderPath):
+		with open(os.path.join(folderPath, 'HBA_elements.log')) as actRef:
+			fileLines = [line for line in actRef]
+			#activation = processHBALog(fileLines)
+			
+	outputFile, groupNamePrefix = h5PrepNames(outputFile, groupNamePrefix)
+
+	with h5py.File(outputFile, 'a') as outputRef:
+		datasetComplexHead = {'processTime': str(datetime.datetime.utcnow())}
+		groupRef = outputRef.require_group(groupNamePrefix)
+
+		dataArr = []
+		dateArr = []
+		for fileName in fileList:
+			with open(fileName, 'rb') as dataRef:
+				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
+				datasetComplex = datasetComplex.reshape(192, 192, 512)
+
+				fileNameMod = fileName.split('/')[-1]
+				fileNameExtract = fileNameMod.split('_')
+				dateTime = datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S')
+
+
+				dataArr.append(datasetComplex)
+				dateArr.append(dateTime)
+				
+		for idx, observation in enumerate(dataArr):
+
+			observationX = observation[::2, ::2, ...]
+
+			observationY = observation[1::2, 1::2, ...]
+			observation = np.stack([observationX, observationY], axis = -1)
+
+			corrDataset = groupRef.require_dataset("correlationArray", observation.shape, dtype = np.complex128, compression = "lzf")
+			corrDataset[...] = observation
+
+			dateTimeVar = np.datetime64(dateArr[idx])
+			allTimes = dateTimeVar + np.arange(-511, 1) * np.timedelta64(1, 's')
+
+			corrDataset.attrs.create('rcuMode', rcuMode)
+			corrDataset.attrs.create('subband', np.arange(512))
+			corrDataset.attrs.create('intTime', 1.)
+			corrDataset.attrs.create('sampleTimes', allTimes)
+
+
+			if calibrationFile is not None:
+				extractCalibration(calibrationFile, groupRef)
+
+	return outputFile, groupNamePrefix, rcuMode
+
+def processInputLocation(fileName, dataType):
+	if os.path.isdir(fileName):
+		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if (fileVar.endswith('.dat') and (dataType.lower() in fileVar))]
+		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
+		if not len(fileList):
+			raise IOError('No {0} files found in provided directory.'.format(dataType.upper()))
+		folderPath = fileName
+		fileName = fileList[0]
+		#print(fileList)
+
+	else:
+		fileList = [fileName]
+		folderPath = os.path.dirname(os.path.abspath(fileName))
+
+	return fileList, fileName, folderPath
+
+
+def processRCUMode(rcuMode, folderPath):
+	try:
+		print('Attempting to guess mode from path name')
+		modeApprox = folderPath.split('mode')[1][:1]
+		modeApprox = int(modeApprox)
+	except (IndexError, ValueError):
+		print('Assuming Mode 3 observation.')
+		modeApprox = 3
+		rcuMode = modeApprox
+
+	return rcuMode
+
+def processHBALog(fileLines):
+	for line in fileLines:
+		line = line
+		#if '253' in line:
+		#	raise Warning('Tile was not completely activated.')
+
+	return
+
+def h5PrepNames(outputFile, fileName, groupNamePrefix):
+	if outputFile is None:
+		outputFile = fileName.split('.dat')[0] + '.h5'
+	elif not '/' in outputFile:
+		outputFile = '/'.join(fileName.split('/')[:-1]) + '/' + outputFile
+
+	if groupNamePrefix is None:
+		groupNamePrefix = '-'.join(fileName.split('/')[-1].split('_')[:2]) + '/'
+
+	return outputFile, groupNamePrefix
+
+def extractCalibration(calibrationFile, groupRef):
+	with open(calibrationFile, 'rb') as calRef:
+		headerArray = []
+		currOffset = calRef.tell()
+
+		#for line in calRef: # 8192 binary chunks per read, skips over some of our data so we can't break when we find the end of the header.
+		while True:
+			line = calRef.readline()
+	
+			if 'HeaderStart' in line:
+				continue
+
+			if 'HeaderStop' in line:
+				break
+
+			headerArray.append(line)
+
+		calVar = np.fromfile(calRef, dtype = np.complex128)
+		rcuCount = calVar.size / 512
+		calData = calVar.reshape(rcuCount, 512, order = 'F')
+		calXData = calData[::2]
+		calYData = calData[1::2]
+
+		calData = np.dstack([calXData, calYData])
+
+		calDataset = groupRef.require_dataset("calibrationArray", calData.shape, dtype = np.complex128, compression = "lzf")
+		calDataset[...] = calData
+		headerArray = [headerStr.strip('CalTableHeader').split(' = ') for headerStr in headerArray]
+
+		keyValDict = {}
+		for key, val in headerArray:
+			key = ''.join(key.split('.'))
+			val = val.strip('\n')
+
+			keyValDict[key] = val
+
+		keyValDict = patchKeyValDict(keyValDict)
+		for key, val in keyValDict.items():
+			calDataset.attrs.create(key, val)
+
 
 def patchKeyValDict(keyValDict):
 	keyValDict['ObservationMode'] = int(keyValDict['ObservationMode'])

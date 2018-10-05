@@ -114,6 +114,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 	arrayLoc = parseBlitzFile(arrayLines, arrayName, False)
 	antLocs = parseBlitzFile(arrayLines, arrayName, True)
 
+	print(antLocs[0], antLocs[0, 0, :], antLocs[0, :, 0])
 	posX = antLocs[:, 0, :]
 	posY = antLocs[:, 1, :]
 
@@ -123,6 +124,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 		posX += arrayDeltas[activeElements]
 		posY += arrayDeltas[activeElements]
 	
+	np.save('antLoc2.npy', np.stack([posX, posY], axis = -1))
 	# select the right set of antennas
 	if not EU:
 		nElem = posX.shape[0]
@@ -280,8 +282,9 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 		#skyView[..., frame] = np.tensordot(tempProd, weight, ([3],[2])) # Dot products producing 201x201x1x201x201x1 arrays, thanks numpy.
 	return skyView.transpose((1,0,2))
 
-
-def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, multiprocessing = True, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, calibrationX = None, calibrationY = None, baselineLimits = None):
+# -11.9
+def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, multiprocessing = True, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, 
+calibrationX = None, calibrationY = None, baselineLimits = None):
 	inputCorrelationsX = inputCorrelations[..., 0]
 	inputCorrelationsY = inputCorrelations[..., 1]
 
@@ -310,7 +313,7 @@ def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subb
 	labelOptions = [dateArr, rcuMode, subband, frequency]
 
 	if not lVec:
-		lVec = np.arange(-1., 1. + 0.01, 0.01 ) # Default to 200 pixels
+		lVec = np.arange(-1., 1. + 0.01, 0.008 ) # Default to 200 pixels
 	if not mVec:
 		mVec = lVec.copy()
 
@@ -478,8 +481,9 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	axImage.axis('off')
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
-		vminVar = np.nanpercentile(allSkyImageLog, 99)
-		vmaxVar = np.nanpercentile(allSkyImageLog, 5)
+		#vminVar = np.nanpercentile(allSkyImageLog, 99)
+		#vmaxVar = np.nanpercentile(allSkyImageLog, 15)
+		vminVar, vmaxVar = 18.96, None
 		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	else:
 		vminVar = np.nanpercentile(allSkyImage, 99)
