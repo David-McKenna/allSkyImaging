@@ -6,7 +6,7 @@ import csv
 import datetime
 
 def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = None, groupNamePrefix = None, integrationTime = None): # TODO: optional subband split
-	fileList, fileName, folderPath = processInputLocation(fileName, dataTypr = 'XST')
+	fileList, fileName, folderPath = processInputLocation(fileName, dataType = 'XST')
 	fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
 
 	try:

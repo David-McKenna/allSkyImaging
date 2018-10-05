@@ -27,7 +27,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 		if os.path.isdir(fileName):
 			fileList, __, __ = processInputLocation(fileName, 'acc')
 			for fileName in fileList:
-				main(fileName, obsType = 'ACC', breakThings, rcuMode, subbandArr, deltasLoc, fieldLoc, plotOptions, activation, calLoc, outputH5Loc, baselineLimits)
+				main(fileName, 'ACC', breakThings, rcuMode, subbandArr, deltasLoc, fieldLoc, plotOptions, activation, calLoc, outputH5Loc, baselineLimits)
 
 			return
 
