@@ -9,6 +9,7 @@ import astropy.units as u
 import datetime
 import subprocess
 import os
+import collections
 import numpy as np
 import matplotlib as mpl
 import matplotlib.patheffects as mplPe
@@ -17,6 +18,11 @@ import matplotlib.pyplot as plt
 from functools import wraps
 import multiprocessing as mp
 
+global vmaxCache
+global vminCache
+
+vmaxCache = collections.deque([], 20)
+vminCache = collections.deque([], 20)
 
 ffmpegLoc = "/cphys/ugrad/2015-16/JF/MCKENND2/Downloads/ffmpeg-4.0.2-64bit-static/ffmpeg"
 
@@ -479,14 +485,30 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 
 	axImage = fig.add_subplot(gs[0], label = 'ax_image')
 	axImage.axis('off')
+
+	global vmaxCache
+	global vminCache
+	
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
 		vminVar = np.nanpercentile(allSkyImageLog, 99)
 		vmaxVar = np.nanpercentile(allSkyImageLog, 5)
+
+		vminCache.append(vminVar)
+		vmaxCache.append(vmaxVar)
+
+		vminVar = np.mean(vminCache)
+		vmaxVar = np.mean(vmaxCache)
 		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	else:
 		vminVar = np.nanpercentile(allSkyImage, 99)
 		vmaxVar = np.nanpercentile(allSkyImage, 5)
+
+		vminCache.append(vminVar)
+		vmaxCache.append(vmaxVar)
+
+		vminVar = np.mean(vminCache)
+		vmaxVar = np.mean(vmaxCache)
 		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	axImage.axis('off')
 	if colorBar:
