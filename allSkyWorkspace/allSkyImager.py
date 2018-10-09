@@ -253,10 +253,10 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 
 	# Temp for lazy debugging
 	if len(lVec.shape) != 2:
-		lVec = lVec[np.newaxis, :] # (1, 96)
+		lVec = lVec[np.newaxis, :] # (1, l)
 
 	if len(mVec.shape) != 2:
-		mVec = mVec[np.newaxis, :] # (1, 96)
+		mVec = mVec[np.newaxis, :] # (1, m)
 
 	if len(posX.shape) != 2:
 		posX = posX[:, np.newaxis] # (96, 1)
@@ -274,8 +274,9 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 	weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis] # (l,m,96,1)
 	conjWeight = np.conj(weight).transpose((0,1,3,2)) # (l,m,1,96)
 	# Should be able to fully vectorise this over all channels, should give  a nicespeedup if we pass frames as alternative channels... for another day.
-	for frame in range(frameCount):
+	for frame in np.arange(frameCount):
 		correlationMatrixChan = correlationMatrix[..., frame] # (96,96)
+		visMat[upperIndex] = correlationMatrixChan[upperIndex]
 		print("Processing Frame {0} of {1} at Frequency {2:.2F}E+06".format(frame + 1, frameCount, obsFreq / 1e6))
 
 		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr # (l,m, 1, 96)
@@ -299,20 +300,20 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 
 	if baselineLimits:
 		print('Test baseline limits.')
-		if not baselineLimits[1]:
-			print('Test no 0th correlations')
-			selections = np.arange(inputCorrelationsX.shape[0])
-			inputCorrelationsX[selections, selections] = 1.
-			inputCorrelationsY[selections, selections] = 1.
-		else:
-			minBaseline, maxBaseline = baselineLimits
+		if not baselineLimits[0]:
+			baselineLimits[0] = 0.
+			print('By not using autocorrelations the sky is a lot quieter: we are disabling log plotting as a result.')
+			plotOptions[0] = False
+		elif not baselineLimits[1]:
+			baselineLimits[1] = 1e9
+		minBaseline, maxBaseline = baselineLimits
 
-			baselines = posX - posY.T
-			print(posX.shape, posY.shape, np.median(np.abs(baselines)), np.percentile(np.abs(baselines), 66),  np.percentile(np.abs(baselines), 75),  np.percentile(np.abs(baselines), 80),  np.percentile(np.abs(baselines), 90))
-			baselines = np.logical_or(np.abs(baselines) > maxBaseline, np.abs(baselines) < minBaseline)
+		baselines = posX - posY.T
+		print(posX.shape, posY.shape, np.median(np.abs(baselines)), np.percentile(np.abs(baselines), 66),  np.percentile(np.abs(baselines), 75),  np.percentile(np.abs(baselines), 80),  np.percentile(np.abs(baselines), 90))
+		baselines = np.logical_or(np.abs(baselines) > maxBaseline, np.abs(baselines) < minBaseline)
 
-			inputCorrelationsX[baselines] = 0.
-			inputCorrelationsY[baselines] = 0.
+		inputCorrelationsX[baselines] = 0.
+		inputCorrelationsY[baselines] = 0.
 
 	frequency = calcFreq(rcuMode, subband) * 1e6
 
@@ -360,11 +361,16 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels))
 
 		if plotOptions[5] and allSkyImX.shape[-1] > 20:
-			filePrefix = xFileLoc[0].split(' ')[0]
+			filePrefix = xFileLoc[0].split(' ')[0][:-3]
 			fileSuffix = '_'.join(xFileLoc[0].split('/')[-1].split('_')[1:])[:-4]
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
 			subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
 
+		global vminCache
+		global vmaxCache
+
+		vminCache.clear()
+		vmaxCache.clear()
 		returnVar['X'] = allSkyImX
 		print(returnVar)
 
@@ -389,10 +395,16 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels))
 
 		if plotOptions[5] and allSkyImY.shape[-1] > 20:
-			filePrefix = yFileLoc[0].split(' ')[0]
+			filePrefix = yFileLoc[0].split(' ')[0][:-3]
 			fileSuffix = '_'.join(yFileLoc[0].split('/')[-1].split('_')[1:])[:-4]
 			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
 			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
+		
+		global vminCache
+		global vmaxCache
+
+		vminCache.clear()
+		vmaxCache.clear()
 
 		returnVar['Y'] = allSkyImY
 		print(returnVar)
@@ -499,6 +511,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 
 		vminVar = np.mean(vminCache)
 		vmaxVar = np.mean(vmaxCache)
+
 		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	else:
 		vminVar = np.nanpercentile(allSkyImage, 99)
