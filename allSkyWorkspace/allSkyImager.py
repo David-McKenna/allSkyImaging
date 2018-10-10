@@ -273,15 +273,16 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 	wy = np.exp(-1j * k * posY * mVec) # (m, 96)
 	weight = np.multiply(wx[:, np.newaxis, :], wy[:, :, np.newaxis]).transpose((1,2,0))[..., np.newaxis] # (l,m,96,1)
 	conjWeight = np.conj(weight).transpose((0,1,3,2)) # (l,m,1,96)
+
 	# Should be able to fully vectorise this over all channels, should give  a nicespeedup if we pass frames as alternative channels... for another day.
 	for frame in np.arange(frameCount):
 		correlationMatrixChan = correlationMatrix[..., frame] # (96,96)
-		visMat[upperIndex] = correlationMatrixChan[upperIndex]
 		print("Processing Frame {0} of {1} at Frequency {2:.2F}E+06".format(frame + 1, frameCount, obsFreq / 1e6))
 
 		tempProd = np.dot(conjWeight, correlationMatrixChan) # w.H * corr # (l,m, 1, 96)
 
-		skyView[..., frame] = np.sum(np.multiply(tempProd.transpose((0,1,3,2)), weight).real, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
+		prodProd = np.multiply(tempProd.transpose((0,1,3,2)), weight).real
+		skyView[..., frame] = np.sum(prodProd, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
 
 		#for l in range(mVec.size):
 		#	for m in range(lVec.size):
@@ -297,6 +298,16 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 
 	posX = antPos[..., 0]
 	posY = antPos[..., 1]
+
+	# Reference
+	stackedArr = np.zeros(np.array(inputCorrelationsX.shape[:2]) * 2)
+	stackedArr[::2, ::2] = inputCorrelationsX[..., 0]
+	stackedArr[1::2, 1::2] = inputCorrelationsY[..., 0]
+
+	xxCorr = inputCorrelationsX
+	yyCorr = inputCorrelationsY
+	xyCorr = stackedArr[1::2, ::2]
+	yxCorr = stackedArr[::2, 1::2]
 
 	if baselineLimits:
 		print('Test baseline limits.')
@@ -408,6 +419,25 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 
 		returnVar['Y'] = allSkyImY
 		print(returnVar)
+
+	if plotX and plotY:
+		stokes_I = np.abs(allSkyImX) + np.abs(allSkyImY)
+		labelOptionsI = labelOptions + ['I', 0]
+		stokesILoc = []
+		for i in range(stokes_I.shape[-1]):
+			labelOptionsI[0] = dateArr[i]
+			labelOptionsI[-1] = figNum
+			figNum += 1
+
+			stokesILoc.append(plotAllSkyImage(stokes_I[..., i], plotOptions, labelOptionsI, pixels))
+
+
+		if plotOptions[5] and stokes_I.shape[-1] > 20:
+			filePrefix = stokesILoc[0].split(' ')[0][:-3]
+			fileSuffix = '_'.join(stokesILoc[0].split('/')[-1].split('_')[1:])[:-4]
+			print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
+			subprocess.call([ffmpegLoc, '-y',  '-r',  '20',  '-pattern_type', 'glob', '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
+
 
 	print(returnVar)
 
@@ -522,6 +552,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 
 		vminVar = np.mean(vminCache)
 		vmaxVar = np.mean(vmaxCache)
+
 		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
 	axImage.axis('off')
 	if colorBar:
