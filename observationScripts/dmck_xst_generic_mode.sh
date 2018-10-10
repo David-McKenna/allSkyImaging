@@ -11,6 +11,7 @@ fi
 # 	adding metadata into their names and moving them to .../mode_X/<FOLDERNAME>/sb<SB>/
 basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST'
 datapath=$basepath'/mode'$1'/'$4'/sb'$2'/'
+datapathnosubband=$basepath'/mode'$1'/'$4'/'
 temppath=$basepath'/temp_00/'
 
 # Make the temporary folder if it doesn't exist already (-p creates parent folders too)
@@ -22,14 +23,14 @@ bits=16
 
 # Log the start time of the observation
 start_time="`date +"%Y/%m/%d@%H:%M:%S"`"
-start_timestrp="`date +"%H:%M:%S"`"
+start_timestrp="`date +"%H%M%S"`"
 
 # Log our intended actions
 echo "*** RCU Mode $1, Subband $2, Integration $3 Data being saved to $datapath"
 
 # Ensure the data directory exists and create a copy of our scripts inside it for future reference
 mkdir -p $datapath
-cp -n ./dmck_* $datapath
+cp -n ./dmck_* $datapathnosubband
 
 # Rebind $2 to a human readable name
 subband="$2"
@@ -39,7 +40,7 @@ subband="$2"
 rspctl --mode=$rcumode
 if [ $rcumode -gt 4 ]; then
 	echo 'Activating HBA tiles by the default (Generic 2015) scheme.'
-	python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$basepath$datapath"'last_hba_activation.log'
+	python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$datapath"'last_hba_activation.log'
 fi
 
 # Switch over to 16 bit and the intended observation subband
@@ -62,7 +63,7 @@ mv $filename $newname
 
 # Log everything for debug reasons.
 printf 'Mode '$1'\nSubband '$2'\nIntegrationTime '$3's\nStartTime '$start_time'\nEndTime '$end_time >> $newname'.log'
-cat $basepath$datapath'last_hba_activation.log' >> $newname'.log'
+cat $datapath'last_hba_activation.log' >> $newname'.log'
 
 
 # Add some spacing before the next observation starts.

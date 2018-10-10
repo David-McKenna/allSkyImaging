@@ -4,7 +4,7 @@ clear
 swlevel 3
 
 
-if test $# != 5; then
+if test $# != 6; then
 	echo "Incorrect inputs: ./script.sh <start subband> <end subband> <sample every nth subband> <integration time> <output folder suffix> <IE613 Bool>"
 	exit;
 fi
@@ -21,13 +21,13 @@ folder_name=$5'/AllSky'
 # Generate the data output path, if we're on IE613 we will be copying data back.
 basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST'
 
-while [ $SUBBAND -lt $END_SUBBAND]; do
+while [ $SUBBAND -lt $END_SUBBAND ]; do
         echo "Integrating subband $SUBBAND for $INT seconds."
         bash ./dmck_xst_generic_mode.sh 5 $SUBBAND $INT $folder_name
 
         # If we are on IE613, copy the data base if our subband is divisible by 5.
-        if [ $6 -eq 1 ]; do
-                if [ $(($SUBBAND % 5)) -eq 0 ]; do
+        if [ $6 -eq 1 ]; then
+                if [ $(($SUBBAND % 5)) -eq 0 ]; then
                         rsync -rzu $basepath USERNEEDED@LGCIPNEEDED:/OUTFOLDERFOLDERNEEDED
                 fi
         fi
