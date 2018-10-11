@@ -19,7 +19,7 @@ INT=$4
 folder_name=$5'/AllSky'
 
 # Generate the data output path, if we're on IE613 we will be copying data back.
-basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST'
+basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST/'
 
 while [ $SUBBAND -lt $END_SUBBAND ]; do
         echo "Integrating subband $SUBBAND for $INT seconds."

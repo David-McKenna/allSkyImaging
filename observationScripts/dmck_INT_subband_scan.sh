@@ -7,7 +7,7 @@ basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST
 start_timestrp="`date +"%H%M%S"`"
 
 # Ensure the path for the log exists
-mkdir -p $basepath
+mkdir -p $basepath$start_timestrp
 
 # Total integration time: ~28 minutes.
 # Total observation time: depends on how quickly HBA activations are applied.

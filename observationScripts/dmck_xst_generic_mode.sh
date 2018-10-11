@@ -62,7 +62,7 @@ echo "XST mode $1 subband $2 observation ended at $end_time"
 mv $filename $newname
 
 # Log everything for debug reasons.
-printf 'Mode '$1'\nSubband '$2'\nIntegrationTime '$3's\nStartTime '$start_time'\nEndTime '$end_time >> $newname'.log'
+printf 'Mode '$1'\nSubband '$2'\nIntegrationTime '$3's\nStartTime '$start_time'\nEndTime '$end_time'\n' >> $newname'.log'
 cat $datapath'last_hba_activation.log' >> $newname'.log'
 
 

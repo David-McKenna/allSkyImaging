@@ -300,7 +300,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 	posY = antPos[..., 1]
 
 	# Reference
-	stackedArr = np.zeros(np.array(inputCorrelationsX.shape[:2]) * 2)
+	stackedArr = np.zeros(np.array(inputCorrelationsX.shape[:2]) * 2, dtype = 'complex')
 	stackedArr[::2, ::2] = inputCorrelationsX[..., 0]
 	stackedArr[1::2, 1::2] = inputCorrelationsY[..., 0]
 
