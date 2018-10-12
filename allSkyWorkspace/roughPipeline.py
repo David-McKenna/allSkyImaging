@@ -8,8 +8,8 @@ import os
 
 global defaultDeltas
 global defaultField
-defaultDeltas = '/cphys/ugrad/2015-16/JF/MCKENND2/allSkyDump/allSkyDump/Config_Cal/iHBADeltas/IE613-iHBADeltas.conf'
-defaultField = '/cphys/ugrad/2015-16/JF/MCKENND2/allSkyDump/allSkyDump/Config_Cal/AntennaFields/IE613-AntennaField.conf'
+defaultDeltas = '/cphys/ugrad/2015-16/JF/MCKENND2/finalyearproject/ecarley_stationmodel/stationmodelenv/lib/python2.7/site-packages/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/IE613-iHBADeltas.conf'
+defaultField = '/cphys/ugrad/2015-16/JF/MCKENND2/finalyearproject/ecarley_stationmodel/stationmodelenv/lib/python2.7/site-packages/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf'
 plotOptions = [True, 'black', .5, 'black', 'white', True, 0, True, 'Birr', 'None']
 
 
@@ -18,6 +18,12 @@ reload(allSkyImager)
 # Extract data from blitz so we don't have to keep referencing them? Store them in the h5 on initial processing?
 def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
 	defaultDeltas, defaultField = checkRequiredFiles()
+
+	if plotOptions[-2] != 'Birr':
+		print('Attempting to change station to {0}'.format(plotOptions[-2]))
+		defaultDeltas = plotOptions[-2].join(defaultDeltas.split('IE613'))
+		defaultField = plotOptions[-2].join(defaultField.split('IE613'))
+
 
 	if obsType.lower() == 'xst':
 		outputFile, groupPrefix, rcuMode = importXST.importXST(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
