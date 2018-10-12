@@ -9,9 +9,8 @@ fi
 # Setup an output data structure in /data/home/user1/<YY>/<MM>/<DD>/XST
 # We will use a temp folder for the given day to ingest observations before 
 # 	adding metadata into their names and moving them to .../mode_X/<FOLDERNAME>/sb<SB>/
-basepath='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/XST'
-datapath=$basepath'/mode'$1'/'$4'/sb'$2'/'
-datapathnosubband=$basepath'/mode'$1'/'$4'/'
+basepath=$4
+datapath=$4'sb'$2'/'
 temppath=$basepath'/temp_00/'
 
 # Make the temporary folder if it doesn't exist already (-p creates parent folders too)
@@ -30,7 +29,7 @@ echo "*** RCU Mode $1, Subband $2, Integration $3 Data being saved to $datapath"
 
 # Ensure the data directory exists and create a copy of our scripts inside it for future reference
 mkdir -p $datapath
-cp -n ./dmck_* $datapathnosubband
+cp -n ./dmck_* $basepath
 
 # Rebind $2 to a human readable name
 subband="$2"
