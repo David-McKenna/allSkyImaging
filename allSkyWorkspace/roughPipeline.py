@@ -17,12 +17,12 @@ reload(importXST)
 reload(allSkyImager)
 # Extract data from blitz so we don't have to keep referencing them? Store them in the h5 on initial processing?
 def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
-	defaultDeltas, defaultField = checkRequiredFiles()
+	fieldLoc, deltasLoc = checkRequiredFiles(plotOptions[-2])
 
-	if plotOptions[-2] != 'Birr':
-		print('Attempting to change station to {0}'.format(plotOptions[-2]))
-		defaultDeltas = plotOptions[-2].join(defaultDeltas.split('IE613'))
-		defaultField = plotOptions[-2].join(defaultField.split('IE613'))
+	#if plotOptions[-2] != 'Birr':
+	#	print('Attempting to change station to {0}'.format(plotOptions[-2]))
+	#	deltasLoc = plotOptions[-2].join(defaultDeltas.split('IE613'))
+	#	fieldLoc = plotOptions[-2].join(defaultField.split('IE613'))
 
 
 	if obsType.lower() == 'xst':
@@ -40,8 +40,10 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 		outputFile, groupPrefix, rcuMode = importXST.importACC(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
 	else:
 		raise RuntimeError('Unknown observation file type.')
+	print(deltasLoc)
+	posXPol, posYPol, lon, lat, arrayLoc, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
 
-	posXPol, posYPol, __, __, __, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
+	stationLocation = [lon, lat, arrayLoc[-1]]
 
 	posX = posXPol[:, 0, np.newaxis]
 	posY = posYPol[:, 1, np.newaxis]
@@ -75,15 +77,15 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 				corrArr = corrRef['{0}/correlationArray'.format(groupPrefix)]
 			datesArr = np.vstack(corrArr.attrs.values()).astype(str)[:, -1]
 
-			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits)
+			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation)
 			print(allSkyData)
 			# Currently assuming we will always generate plots for both X and Y polarisations
 			allSkySubband = np.stack([allSkyData['X'], allSkyData['Y']], axis = -1)
 			imageArr = corrRef.require_dataset('{0}sb{1}/imageData'.format(groupPrefix, subbandVal), allSkySubband.shape, compression = 'lzf', dtype = np.float64)
 			imageArr[...] = allSkySubband
 
-def checkRequiredFiles():
-	files = [[defaultField, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf'], [defaultDeltas, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-iHBADeltas.conf']]
+def checkRequiredFiles(stationName):
+	files = [[defaultField, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/{0}-AntennaField.conf'.format(stationName)], [defaultDeltas, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/{0}-iHBADeltas.conf'.format(stationName)]]
 	currFiles = []
 	for filePath, defaultLocation in files:
 		if not os.path.exists(filePath):

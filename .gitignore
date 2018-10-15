@@ -9,3 +9,4 @@ ecarley_stationmodel/stationmodelenv/*
 *.log
 allSkyMonitor/*
 allSkyMonitor*
+*.conf

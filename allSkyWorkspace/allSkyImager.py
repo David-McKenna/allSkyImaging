@@ -206,8 +206,8 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 
 def parseBlitzFile(linesArray, keyword, refLoc = False):
 	linesArray = [line.strip('\n') for line in linesArray]
-
-	triggerLine = [idx for idx, line in enumerate(linesArray) if line == keyword][0]
+	print(linesArray)
+	triggerLine = [idx for idx, line in enumerate(linesArray) if line.startswith(keyword)][0]
 	triggerLine += refLoc + 1 # refLoc = add a buffer line to account for a location refernece before processing.
 
 
@@ -226,7 +226,7 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 
 	startArrayLoc = linesArray[triggerLine].index('[') 
 	splitTuples =  linesArray[triggerLine][:startArrayLoc].split('x')
-
+	print(splitTuples)
 	arrayShape = filter(None, splitTuples)[:arrayShapeParts]
 	arrayShape = [ast.literal_eval(strEle.strip(' ')) for strEle in arrayShape]
 	arrayShape = [tuplePair[1] - tuplePair[0] + 1 for tuplePair in arrayShape]
@@ -292,7 +292,7 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 
 # -11.9
 def generatePlots(inputCorrelations, antPos, plotOptions, dateArr, rcuMode, subband, multiprocessing = True, stationRotation = -11.9, plotX = True, plotY = True, mask = True, lVec = None, mVec = None, 
-calibrationX = None, calibrationY = None, baselineLimits = None):
+calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation = None):
 	inputCorrelationsX = inputCorrelations[..., 0]
 	inputCorrelationsY = inputCorrelations[..., 1]
 
@@ -369,7 +369,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 			labelOptionsX[0] = dateArr[i]
 			labelOptionsX[-1] = figNum
 			figNum += 1
-			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels))
+			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels, stationLocation))
 
 		if plotOptions[5] and allSkyImX.shape[-1] > 20:
 			filePrefix = xFileLoc[0].split(' ')[0][:-3]
@@ -403,7 +403,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 			labelOptionsY[0] = dateArr[i]
 			labelOptionsX[-1] = figNum
 			figNum += 1
-			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels))
+			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels, stationLocation))
 
 		if plotOptions[5] and allSkyImY.shape[-1] > 20:
 			filePrefix = yFileLoc[0].split(' ')[0][:-3]
@@ -429,7 +429,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None):
 			labelOptionsI[-1] = figNum
 			figNum += 1
 
-			stokesILoc.append(plotAllSkyImage(stokes_I[..., i], plotOptions, labelOptionsI, pixels))
+			stokesILoc.append(plotAllSkyImage(stokes_I[..., i], plotOptions, labelOptionsI, pixels, stationLocation))
 
 
 		if plotOptions[5] and stokes_I.shape[-1] > 20:
@@ -480,14 +480,15 @@ def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stat
 	# Extra returns for if we start multithreading
 	return allSkyIm, plotOptions, labelOptions
 
-def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
+def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocation):
 	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite, outputFolder = plotOptions
 	dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 
-	if obsSite in ['Birr', 'IE613', 'IE', 'EIRE']:
+	if not stationLocation:
+		print('Assuming we are observing IE613')
 		telescopeLoc = astropy.coordinates.EarthLocation( lat = 53.095 * u.deg, lon = -7.9218 * u.deg, height = 100 * u.m )
 	else:
-		telescopeLoc = astropy.coordinates.EarthLocation.of_site(obsSite)
+		telescopeLoc = astropy.coordinates.EarthLocation( lat = stationLocation[0] * u.deg, lon = stationLocation[1] * u.deg, height = stationLocation[2] * u.m )
 	latLon = telescopeLoc.to_geodetic()
 
 	if len(dateTime) == 15:
@@ -534,7 +535,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 	if logPlot:
 		allSkyImageLog = np.log(allSkyImage)
 		vminVar = np.nanpercentile(allSkyImageLog, 99)
-		vmaxVar = np.nanpercentile(allSkyImageLog, 5)
+		vmaxVar = np.nanpercentile(allSkyImageLog, 33)
 
 		vminCache.append(vminVar)
 		vmaxCache.append(vmaxVar)
@@ -542,7 +543,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 		vminVar = np.mean(vminCache)
 		vmaxVar = np.mean(vmaxCache)
 
-		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
+		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmax = vmaxVar, vmin = vminVar)
 	else:
 		vminVar = np.nanpercentile(allSkyImage, 99)
 		vmaxVar = np.nanpercentile(allSkyImage, 5)
@@ -553,7 +554,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 		vminVar = np.mean(vminCache)
 		vmaxVar = np.mean(vmaxCache)
 
-		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image', vmin = vminVar, vmax = vmaxVar)
+		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image')
 	axImage.axis('off')
 	if colorBar:
 		axColorBar = plt.subplot(gs[1])
@@ -605,8 +606,9 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels):
 			os.makedirs(outputFolder)
 
 		plotFilename = "{6}{0}_{1}_sb{2}_mode{3}{4}_{5}MHz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6), outputFolder)
+		plotFilename = plotFilename.replace(' ', '_').replace(':', '')
 		print("Saving output to {0}".format(plotFilename))
-	 
+	 	
 		fig.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
 		plt.close(figNum)
 		return plotFilename
