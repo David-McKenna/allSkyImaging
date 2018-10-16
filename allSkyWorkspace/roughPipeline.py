@@ -22,9 +22,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 
 
 	rotation = processTxt(lbaRotLoc, plotOptions[-2])
-
-
-	print(lbaRotation, hbaRotation)
+	print(rotation)
 
 	#if plotOptions[-2] != 'Birr':
 	#	print('Attempting to change station to {0}'.format(plotOptions[-2]))
