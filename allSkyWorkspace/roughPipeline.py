@@ -8,16 +8,23 @@ import os
 
 global defaultDeltas
 global defaultField
-defaultDeltas = '/cphys/ugrad/2015-16/JF/MCKENND2/finalyearproject/ecarley_stationmodel/stationmodelenv/lib/python2.7/site-packages/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/IE613-iHBADeltas.conf'
-defaultField = '/cphys/ugrad/2015-16/JF/MCKENND2/finalyearproject/ecarley_stationmodel/stationmodelenv/lib/python2.7/site-packages/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf'
-plotOptions = [True, 'black', .5, 'black', 'white', True, 0, True, 'Birr', 'None']
+defaultDeltas = './IE613-iHBADeltas.conf'
+defaultField = './IE613-AntennaField.conf'
+lbaRotation = './lbaRotations.txt'
+plotOptions = [True, 'black', .5, 'black', 'white', True, 0, True, 'IE613', 'None']
 
 
 reload(importXST)
 reload(allSkyImager)
 # Extract data from blitz so we don't have to keep referencing them? Store them in the h5 on initial processing?
 def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, subbandArr = None, deltasLoc = defaultDeltas, fieldLoc = defaultField, plotOptions = plotOptions, activation = None, calLoc = None, outputH5Loc = None, baselineLimits = None):
-	fieldLoc, deltasLoc = checkRequiredFiles(plotOptions[-2])
+	fieldLoc, deltasLoc, lbaRotLoc = checkRequiredFiles(plotOptions[-2])
+
+
+	rotation = processTxt(lbaRotLoc, plotOptions[-2])
+
+
+	print(lbaRotation, hbaRotation)
 
 	#if plotOptions[-2] != 'Birr':
 	#	print('Attempting to change station to {0}'.format(plotOptions[-2]))
@@ -55,6 +62,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 	if not plotOptions[-1]:
 		plotOptions[-1] = '/'.join(outputFile.split('/')[:-1]) + '/'
 
+
 	with h5py.File(outputFile, 'r+') as corrRef:
 		if obsType != 'acc':
 			if subbandArr == None:
@@ -79,7 +87,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 				corrArr = corrRef['{0}/correlationArray'.format(groupPrefix)]
 			datesArr = np.vstack(corrArr.attrs.values()).astype(str)[:, -1]
 
-			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation)
+			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation, stationRotation = rotation)
 			#print(allSkyData)
 			# Currently assuming we will always generate plots for both X and Y polarisations
 			allSkySubband = np.stack([allSkyData['X'], allSkyData['Y']], axis = -1)
@@ -87,7 +95,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 			imageArr[...] = allSkySubband
 
 def checkRequiredFiles(stationName):
-	files = [[defaultField, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/{0}-AntennaField.conf'.format(stationName)], [defaultDeltas, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/{0}-iHBADeltas.conf'.format(stationName)]]
+	files = [[defaultField, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/{0}-AntennaField.conf'.format(stationName)], [defaultDeltas, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/{0}-iHBADeltas.conf'.format(stationName)], [lbaRotation, 'https://raw.githubusercontent.com/cosmicpudding/lofarimaging/master/stationrotations.txt']]
 	currFiles = []
 	for filePath, defaultLocation in files:
 		if not os.path.exists(filePath):
@@ -100,3 +108,10 @@ def checkRequiredFiles(stationName):
 			currFiles.append(filePath)
 
 	return currFiles
+
+def processTxt(fileLoc, stationName):
+	with open(fileLoc, 'r') as fileRef:
+		stationLine = [line for line in fileRef if stationName.upper() in line][0]
+		stationRotation = -1. * float(stationLine.split(' ')[1][:-2])
+
+	return stationRotation

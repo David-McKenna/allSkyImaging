@@ -286,8 +286,7 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 
 		prodProd = np.multiply(tempProd.transpose((0,1,3,2)), weight).real
 		skyView[..., frame] = np.sum(prodProd, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
-		if frame > 1:
-			break
+
 		#for l in range(mVec.size):
 		#	for m in range(lVec.size):
 		#		skyView[l, m, frame] = np.dot(tempProd[l, m], weight[l, m]).real[0, 0]
