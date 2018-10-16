@@ -187,7 +187,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 	posX = np.array(posX)
 	posY = np.array(posY)
 	# obtain longitude and latitude of the station
-	# David McKenna: I don't want to touch this wizardry.
+	# David McKenna: I don't want to touch this wizardry. Looks a lot like the code from Michiel Brentjens' lofar-antenna-positions though, so I supplemented it with his height code.
 	wgs84_f = 1 / 298.257223563
 	wgs84_a = 6378137
 	wgs84_e2 = wgs84_f * (2 - wgs84_f)
@@ -200,13 +200,16 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 		prev_lat = lat
 		normalized_earth_radius = 1 / np.sqrt((1-wgs84_f)**2 * np.sin(lat)**2 + np.cos(lat)**2)
 		lat = np.arctan2(wgs84_e2 * wgs84_a * normalized_earth_radius * np.sin(lat) + arrayLoc[2], r)
-	lat = lat * 180 /np.pi
 
-	return posX, posY, lon, lat, arrayLoc, rotationMatrix
+	lat = lat * 180 /np.pi
+	height = r * np.cos(lat * np.pi / 180.) + arrayLoc[2] * np.sin(lat * np.pi / 180.) - wgs84_a * np.sqrt(1. - wgs84_e2 * np.sin(lat * np.pi / 180.) ** 2)
+
+
+	return posX, posY, lon, lat, height, arrayLoc, rotationMatrix
 
 def parseBlitzFile(linesArray, keyword, refLoc = False):
 	linesArray = [line.strip('\n') for line in linesArray]
-	print(linesArray)
+	#print(linesArray)
 	triggerLine = [idx for idx, line in enumerate(linesArray) if line.startswith(keyword)][0]
 	triggerLine += refLoc + 1 # refLoc = add a buffer line to account for a location refernece before processing.
 
@@ -226,7 +229,7 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 
 	startArrayLoc = linesArray[triggerLine].index('[') 
 	splitTuples =  linesArray[triggerLine][:startArrayLoc].split('x')
-	print(splitTuples)
+	#print(splitTuples)
 	arrayShape = filter(None, splitTuples)[:arrayShapeParts]
 	arrayShape = [ast.literal_eval(strEle.strip(' ')) for strEle in arrayShape]
 	arrayShape = [tuplePair[1] - tuplePair[0] + 1 for tuplePair in arrayShape]
@@ -283,7 +286,8 @@ def corrToSkyImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec):
 
 		prodProd = np.multiply(tempProd.transpose((0,1,3,2)), weight).real
 		skyView[..., frame] = np.sum(prodProd, axis = (2,3)) # (w.H * corr) * w, faster than loop below by about 50ms (running at 620ms, down from 2s in original implementation)
-
+		if frame > 1:
+			break
 		#for l in range(mVec.size):
 		#	for m in range(lVec.size):
 		#		skyView[l, m, frame] = np.dot(tempProd[l, m], weight[l, m]).real[0, 0]
@@ -366,10 +370,11 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		xFileLoc = []
 		for i in range(allSkyImX.shape[-1]):
-			labelOptionsX[0] = dateArr[i]
+			labelOptionsX[0] = str(dateArr[0])
+			labelOptionsX[0] += '.{0:02d}'.format(i)
 			labelOptionsX[-1] = figNum
 			figNum += 1
-			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels, stationLocation))
+			xFileLoc.append(plotAllSkyImage(allSkyImX[..., i], plotOptions, labelOptionsX, pixels, stationLocation, lVec, mVec))
 
 		if plotOptions[5] and allSkyImX.shape[-1] > 20:
 			filePrefix = xFileLoc[0].split(' ')[0][:-3]
@@ -400,10 +405,11 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		yFileLoc = []
 		for i in range(allSkyImY.shape[-1]):
-			labelOptionsY[0] = dateArr[i]
-			labelOptionsX[-1] = figNum
+			labelOptionsY[0] = str(dateArr[0])
+			labelOptionsY[0] += '.{0:02d}'.format(i)
+			labelOptionsY[-1] = figNum
 			figNum += 1
-			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels, stationLocation))
+			yFileLoc.append(plotAllSkyImage(allSkyImY[..., i], plotOptions, labelOptionsY, pixels, stationLocation, lVec, mVec))
 
 		if plotOptions[5] and allSkyImY.shape[-1] > 20:
 			filePrefix = yFileLoc[0].split(' ')[0][:-3]
@@ -425,11 +431,12 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 		labelOptionsI = labelOptions + ['I', 0]
 		stokesILoc = []
 		for i in range(stokes_I.shape[-1]):
-			labelOptionsI[0] = dateArr[i]
+			labelOptionsI[0] = str(dateArr[0])
+			labelOptionsI[0] += '.{0:02d}'.format(i)
 			labelOptionsI[-1] = figNum
 			figNum += 1
 
-			stokesILoc.append(plotAllSkyImage(stokes_I[..., i], plotOptions, labelOptionsI, pixels, stationLocation))
+			stokesILoc.append(plotAllSkyImage(stokes_I[..., i], plotOptions, labelOptionsI, pixels, stationLocation, lVec, mVec))
 
 
 		if plotOptions[5] and stokes_I.shape[-1] > 20:
@@ -456,10 +463,10 @@ def __processCorrPlot():
 
 	fileLoc = []
 	for i in range(allSkyIm.shape[-1]):
-		labelOptions[0] = dateArr[i]
+		labelOptions[0] = dateArr[i] + 1
 		labelOptions[-1] = figNum
 		figNum += 1
-		fileLoc.append(plotAllSkyImage(allSkyIm[..., i], plotOptions, labelOptions, pixels))
+		fileLoc.append(plotAllSkyImage(allSkyIm[..., i], plotOptions, labelOptions, pixels, stationLocation, lVec, mVec))
 
 	if plotOptions[5] and allSkyIm.shape[-1] > 20:
 		filePrefix = fileLoc[0].split(' ')[0]
@@ -476,11 +483,12 @@ def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stat
 	allSkyIm = scipy.ndimage.rotate(allSkyIm, stationRotation, mode = 'constant', cval = 100., reshape = False)
 	
 	allSkyIm[mask] = np.nan
+	allSkyIm[allSkyIm == 100.] = np.nan
 
 	# Extra returns for if we start multithreading
 	return allSkyIm, plotOptions, labelOptions
 
-def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocation):
+def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocation, lVec, mVec):
 	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite, outputFolder = plotOptions
 	dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 
@@ -516,6 +524,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocat
 	gs = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
 	gs2 = mpl.gridspec.GridSpec(1, 2, width_ratios = [18, 1])
 
+	print(figNum)
 	fig = plt.figure(figNum, figsize = (18, 14))
 	fig.patch.set_facecolor(backgroundColor)
 	plt.suptitle( 'LOFAR mode {0}{1} all sky plot at {2}MHz (sb{3}) for {4}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite), fontsize = 28, color=foregroundColor )#, va = 'top') 
@@ -532,29 +541,32 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocat
 	global vmaxCache
 	global vminCache
 	
+	lCoord, mCoord = np.meshgrid(lVec.squeeze(), mVec.squeeze())
+
+	print(lCoord, lCoord.shape, mCoord.shape, allSkyImage.shape)
 	if logPlot:
-		allSkyImageLog = np.log(allSkyImage)
-		vminVar = np.nanpercentile(allSkyImageLog, 99)
-		vmaxVar = np.nanpercentile(allSkyImageLog, 33)
+		allSkyImageLog = np.log10(allSkyImage)
+		#vmaxVar = np.nanpercentile(allSkyImageLog, 99)
+		#vminVar = np.nanpercentile(allSkyImageLog, 33)
 
-		vminCache.append(vminVar)
-		vmaxCache.append(vmaxVar)
+		#vminCache.append(vminVar)
+		#vmaxCache.append(vmaxVar)
 
-		vminVar = np.mean(vminCache)
-		vmaxVar = np.mean(vmaxCache)
+		#vminVar = np.mean(vminCache)
+		#vmaxVar = np.mean(vmaxCache)
 
-		pltIm = axImage.imshow(allSkyImageLog, alpha = 1, cmap='jet', label = 'ax_image', vmax = vmaxVar, vmin = vminVar)
+		pltIm = axImage.imshow(allSkyImageLog, cmap='jet', label = 'ax_image', interpolation = 'nearest')
 	else:
-		vminVar = np.nanpercentile(allSkyImage, 99)
-		vmaxVar = np.nanpercentile(allSkyImage, 5)
+		vmaxVar = np.nanpercentile(allSkyImage, 99)
+		vminVar = np.nanpercentile(allSkyImage, 5)
 
-		vminCache.append(vminVar)
-		vmaxCache.append(vmaxVar)
+		#vminCache.append(vminVar)
+		#vmaxCache.append(vmaxVar)
 
-		vminVar = np.mean(vminCache)
-		vmaxVar = np.mean(vmaxCache)
+		#vminVar = np.mean(vminCache)
+		#vmaxVar = np.mean(vmaxCache)
+		pltIm = axImage.imshow(allSkyImage, cmap='jet', label = 'ax_image', interpolation = 'nearest')
 
-		pltIm = axImage.imshow(allSkyImage, alpha = 1, cmap='jet', label = 'ax_image')
 	axImage.axis('off')
 	if colorBar:
 		axColorBar = plt.subplot(gs[1])

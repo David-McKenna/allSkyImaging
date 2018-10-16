@@ -41,9 +41,11 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 	else:
 		raise RuntimeError('Unknown observation file type.')
 	print(deltasLoc)
-	posXPol, posYPol, lon, lat, arrayLoc, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
+	posXPol, posYPol, lon, lat, height, arrayLoc, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
 
-	stationLocation = [lon, lat, arrayLoc[-1]]
+	print(lon, lat, height)
+
+	stationLocation = [lat, lon, height]
 
 	posX = posXPol[:, 0, np.newaxis]
 	posY = posYPol[:, 1, np.newaxis]
@@ -78,7 +80,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 			datesArr = np.vstack(corrArr.attrs.values()).astype(str)[:, -1]
 
 			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation)
-			print(allSkyData)
+			#print(allSkyData)
 			# Currently assuming we will always generate plots for both X and Y polarisations
 			allSkySubband = np.stack([allSkyData['X'], allSkyData['Y']], axis = -1)
 			imageArr = corrRef.require_dataset('{0}sb{1}/imageData'.format(groupPrefix, subbandVal), allSkySubband.shape, compression = 'lzf', dtype = np.float64)
