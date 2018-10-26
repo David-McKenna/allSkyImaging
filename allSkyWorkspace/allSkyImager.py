@@ -18,6 +18,9 @@ import matplotlib.pyplot as plt
 from functools import wraps
 import multiprocessing as mp
 
+from healpy.sphtfunc import Alm as almMap
+import healpy
+
 global vmaxCache
 global vminCache
 
@@ -205,11 +208,12 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 	height = r * np.cos(lat * np.pi / 180.) + arrayLoc[2] * np.sin(lat * np.pi / 180.) - wgs84_a * np.sqrt(1. - wgs84_e2 * np.sin(lat * np.pi / 180.) ** 2)
 
 
-	return posX, posY, lon, lat, height, arrayLoc, rotationMatrix
+	return posX, posY, lon, lat, height, arrayLoc, antLocs
 
 def parseBlitzFile(linesArray, keyword, refLoc = False):
 	linesArray = [line.strip('\n') for line in linesArray]
 	#print(linesArray)
+	print(linesArray)
 	triggerLine = [idx for idx, line in enumerate(linesArray) if line.startswith(keyword)][0]
 	triggerLine += refLoc + 1 # refLoc = add a buffer line to account for a location refernece before processing.
 
@@ -299,6 +303,9 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 	inputCorrelationsX = inputCorrelations[..., 0]
 	inputCorrelationsY = inputCorrelations[..., 1]
 
+	antPos, rawAnts = antPos
+	rawAnts = rawAnts[:, 0, :][:, np.newaxis]
+	#raw_input([antPos.shape, rawAnts.shape, 'hi'])
 	posX = antPos[..., 0]
 	posY = antPos[..., 1]
 
@@ -330,6 +337,9 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 		inputCorrelationsY[baselines] = 0.
 
 	frequency = calcFreq(rcuMode, subband) * 1e6
+
+	#raw_input((xxCorr + yyCorr).shape)
+	test = swhtSkyImage(xxCorr + yyCorr, rawAnts, stationLocation, dateArr, 15, frequency)
 
 	labelOptions = [dateArr, rcuMode, subband, frequency]
 
@@ -369,7 +379,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		xFileLoc = []
 		for i in range(allSkyImX.shape[-1]):
-			labelOptionsX[0] = str(dateArr[0])
+			labelOptionsX[0] = str(dateArr[i])
 			labelOptionsX[0] += '.{0:02d}'.format(i)
 			labelOptionsX[-1] = figNum
 			figNum += 1
@@ -404,7 +414,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		yFileLoc = []
 		for i in range(allSkyImY.shape[-1]):
-			labelOptionsY[0] = str(dateArr[0])
+			labelOptionsY[0] = str(dateArr[i])
 			labelOptionsY[0] += '.{0:02d}'.format(i)
 			labelOptionsY[-1] = figNum
 			figNum += 1
@@ -430,7 +440,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 		labelOptionsI = labelOptions + ['I', 0]
 		stokesILoc = []
 		for i in range(stokes_I.shape[-1]):
-			labelOptionsI[0] = str(dateArr[0])
+			labelOptionsI[0] = str(dateArr[i])
 			labelOptionsI[0] += '.{0:02d}'.format(i)
 			labelOptionsI[-1] = figNum
 			figNum += 1
@@ -477,6 +487,7 @@ def __processCorrPlot():
 
 def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions):
 	allSkyIm = corrToSkyImage(inputCorrelations, posX, posY, frequency, lVec, mVec)
+	#allSkyIm = swhtSkyImage(inputCorrelations, posX, posY, frequency, lVec, mVec)
 	allSkyIm = np.rot90(allSkyIm, 3)
 	allSkyIm = np.flipud(allSkyIm)
 	allSkyIm = scipy.ndimage.rotate(allSkyIm, stationRotation, mode = 'constant', cval = 100., reshape = False)
@@ -487,15 +498,322 @@ def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stat
 	# Extra returns for if we start multithreading
 	return allSkyIm, plotOptions, labelOptions
 
+def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, frequency):
+	#Currently non functional. Stencilling in code at the moment, will flesh out input parameters later.
+	xyz_raw = xyz.copy()
+	xyz = xyz - xyz.transpose(1,0,2)
+	xyz_triu = np.triu_indices(xyz.shape[0])
+
+	inputCorrelations[np.eye(inputCorrelations.shape[0], dtype = bool)] = 0.
+	inputDropped = inputCorrelations[xyz_triu]
+	xyz = xyz[xyz_triu]
+
+	print(stationLocation)
+	trueTelescopeLoc = astropy.coordinates.EarthLocation( lat = stationLocation[0] * u.deg, lon = stationLocation[1] * u.deg, height = stationLocation[2] * u.m )
+	telescopeLoc = astropy.coordinates.EarthLocation(lat = 0 * u.deg, lon = -90 * u.deg, height = 0 * u.m) # Not sure why, used by Griffin as a baseline for calculations and it works.
+	uvw = np.zeros([0] + list(xyz.shape))
+	print(uvw.shape)
+
+	zenithArr = []
+	altAzArr = []
+	for timestamp in timesArr:
+		print(timestamp)
+		obsTime = astropy.time.Time(timestamp, scale = 'utc', location = telescopeLoc)
+		utcObsTime = astropy.time.Time(timestamp, scale = 'utc')
+
+		altAz = astropy.coordinates.AltAz(az = 0. * u.deg, alt = 90. * u.deg, location = trueTelescopeLoc, obstime = utcObsTime)
+		zenith = altAz.transform_to(astropy.coordinates.Galactic)
+
+		print(zenith.l.deg, zenith.b.deg)
+		sidAngle = float(obsTime.sidereal_time('mean').radian)
+		zenithArr.append(zenith)
+		altAzArr.append(altAz)
+
+		sinSA = np.sin(sidAngle)
+		cosSA = np.cos(sidAngle)
+		rotationMatrix = np.array([[sinSA, cosSA, 0.],
+						[-1. * cosSA, sinSA, 0.],
+						[0., 0., 1.]])
+
+		#raw_input([sidAngle, obsTime, sinSA, cosSA])
+		uvw = np.concatenate([uvw, np.dot(rotationMatrix, xyz.T).T[np.newaxis]], axis = 0)
+
+	r, theta, phi = cartToSpherical(uvw)
+	r = r[0] # All samples have the same r values
+
+	k_0 = 2. * np.pi * frequency / scipy.constants.c
+
+	#k_0 = frequency / scipy.constants.c
+	preFac = 2. * (k_0 ** 2) / np.pi
+	kRVec = k_0 * r
+
+	arraySize = almMap.getsize(lMax - 1)
+	results = np.empty(arraySize, dtype = complex)
+	ores = np.zeros((lMax, 2* lMax + 1), dtype = complex)
+	jv = []
+	sph = []
+
+	kZeroBool = kRVec == 0.
+
+
+#	mGrid = xyz_raw.shape[0] - 1 - np.mgrid[0:xyz_raw.shape[0], 0:xyz_raw.shape[1]].transpose(1,2,0)[xyz_triu]
+#	index = [almMap.getidx(lMax, lm[0], lm[1]) for lm in mGrid]
+#	_cython_loop(kRVec, kZeroBool, phi, theta, lMax, results, preFac, index)
+	'''
+	try:
+		knownBodies = ['Sun', 'Jupiter', 'Moon', 'Uranus', 'Neptune']
+		plotLists = [[]] * len(knownBodies)
+		bodyList = [[]] * len(timesArr)
+
+		altAzRef = astropy.coordinates.AltAz(obstime = obsTime, location = telescopeLoc)
+		altAzObjArr = []
+
+		for timeIdx, obsTimeStr in enumerate(timesArr):
+			print(timeIdx)
+			#altAzRef.obstime = obsTimeStr # If only they allowed us to just change the time...
+			bodyList[timeIdx] = [astropy.coordinates.get_body(sourceName, obsTime, telescopeLoc) for sourceName in knownBodies]
+
+			altAzObjArr.append([skyObj.transform_to(altAzArr[timeIdx]) for skyObj in bodyList[timeIdx]])
+		
+		for bodyIdx, timeArr in enumerate(altAzObjArr):
+			print(timeArr)
+			for bodyObj in timeArr:
+				print(plotLists[bodyIdx], bodyIdx, bodyObj.alt.deg)
+				if bodyObj.alt.deg > 20.:
+					plotLists[bodyIdx].extend((bodySkyObj.galactic.l.deg, bodySkyObj.galactic.b.deg))
+				else:
+					plotLists[bodyIdx].extend((np.nan, np.nan))
+
+	except NameError:
+		plotLists = []
+	'''
+
+
+	for l in range(lMax):
+		j_l = scipy.special.spherical_jn(l, kRVec) # (rLen,)
+		j_l[kZeroBool] = 0. # nan otherwise
+		
+		lRev = (4 * np.pi * (-1j)**l) # (1,)
+		print(l)
+		jv.append(np.sum(j_l))
+		visBessel = inputDropped.flatten() * np.repeat(j_l, uvw.shape[0], axis = 0) 
+		for m in range(l + 1):
+			y_lm_star = np.conj(scipy.special.sph_harm(m, l, phi.T.flatten(), theta.T.flatten()))# (timeSamples * nants ** 2)
+			print(phi.shape, theta.shape)
+			#y_lm_star = np.conj( SWHT.Ylm.Ylm( l, m, phi.T.flatten(), theta.T.flatten())) # Same output as scipy...
+			sph.append(np.sum(y_lm_star))
+			#print(j_l, y_lm_star)
+
+			resultsIndex = almMap.getidx(lMax - 1, l, m)
+			#rI.append(resultsIndex)
+			#print(inputCorrelations.shape, inputCorrelations[xyz_triu].shape)
+			#print(inputCorrelations[xyz_triu].shape, j_l[:, np.newaxis].shape, y_lm_star.T.shape)
+
+			#print(l, m, resultsIndex, lMax)
+			results[resultsIndex] = preFac * np.sum(visBessel * y_lm_star) / lRev
+			#print(inputDropped.shape, j_l.shape, y_lm_star.shape)
+			#results[resultsIndex] += preFac * np.sum(np.conj(inputDropped) * j_l[:, np.newaxis] * y_lm_star.T) / lRev
+			#ores[l, l + m] = results[resultsIndex]
+			'''
+	print(jv[0])
+	#np.save('./inp2.npy', inputCorrelations[xyz_triu])
+	#np.save('./jv1.npy', jv)
+	#np.save('./sph1.npy', sph)
+	plt.plot(jv)
+	plt.figure(2)
+	plt.plot(sph)
+	plt.figure(3)
+	plt.plot([val.imag for val in sph], c = 'r')
+	#plt.twinx().plot(theta.T, c = 'g')
+	plt.show()
+	print(sph[0])
+	plt.plot(ores)
+	plt.show()
+	'''
+	'''
+	results = np.zeros(almMap.getsize(lMax), dtype = complex)
+	for l in np.arange(lMax): #increase lmax by 1 to account for starting from 0
+		#jvVals = np.reshape(sphBj(l, kr.flatten(), autos=True), kr.shape) #compute Bessel function radius values
+		jvVals = np.repeat(SWHT.swht.sphBj(l, kRVec.flatten(), autos=False)[np.newaxis], phi.shape[0], axis = 0) #compute Bessel function radius values
+		lRev = (4 * np.pi * (- 1j)** -l) # (1,)
+		for m in np.arange(l, l+1):
+			print(l, m)
+			#Compute visibility spherical harmonic coefficients according to SWHT, i.e. multiply visibility by spherical wave harmonics for each L&M and sum over all baselines.
+			#Note that each non-zero baseline is effectively summed twice in the precedi(In the MNRAS letter image the NZ baselines were only weighted once, i.e. their conjugate baselines were not summed.)
+			#spharmlm = np.repeat(np.conj(Ylm.Ylm(l, m, phi[:, sbIdx:sbIdx+1], theta[:, sbIdx:sbIdx+1])), nsbs, axis=1) #spherical harmonics only needed to be computed once for all baselines, independent of observing frequency
+			spharmlm = np.conj( SWHT.Ylm.Ylm( l, m, phi, theta))
+			resultsIndex = almMap.getidx(lMax, l, l + m)
+			print(inputCorrelations[xyz_triu].shape, jvVals.shape, spharmlm.shape)
+			results[resultsIndex] = np.mean(preFac * np.nansum(inputCorrelations[xyz_triu].T * jvVals * spharmlm, axis = 1) / lRev)
+	'''
+	#saveCache(True)
+
+	print('Map Start')
+	#results = SWHT.util.array2almVec(ores)
+	#hpMap = healpy.ma(healpy.alm2map(results, 64))
+	hpMap = np.log2(np.abs(healpy.alm2map(results, 64)))
+
+	galRotator = healpy.rotator.Rotator(coord = ['C','G'])
+	hpMap = galRotator.rotate_map(hpMap)
+	hpMapMasked = healpy.ma(hpMap)
+	hpMapMasked.mask = np.logical_not(hpMapMasked)
+	print('Map End')
+
+	#np.save('./hpMap1.npy', hpMap)
+	#np.save('./res1.npy', results)
+	#plt.plot(hpMap)
+	#plt.show()
+
+	mask = np.zeros(healpy.nside2npix(64), dtype=np.bool)
+	print(mask.shape)
+	pixel_theta, pixel_phi = healpy.pix2ang(64, np.arange(healpy.nside2npix(64)), lonlat = True)
+	
+
+	# Fuck everyhting about this coordinate system...
+	invLoc = pixel_theta > 180.
+	# We cannot simply do reverse orders as pixels are allocated on a per-area basis, not a numbers basis
+	
+	pixel_theta[invLoc] =  (360. - pixel_theta[invLoc]) * -1.
+	pixel_theta[~invLoc] = pixel_theta[~invLoc]
+
+	#healpy.mollview(pixel_theta)
+	#healpy.mollview(pixel_phi)
+	#plt.show()
+	#pixel_theta = 360. - pixel_theta
+
+	galCoordLon = np.array([skyCoord.l.deg for skyCoord in zenithArr])
+	galCoordLat = np.array([skyCoord.b.deg for skyCoord in zenithArr])
+
+	healpy.mollview(pixel_theta)
+	healpy.projplot(galCoordLon, galCoordLat, lonlat = True)
+	healpy.visufunc.graticule()
+
+	healpy.mollview(pixel_phi)
+	healpy.projplot(galCoordLon, galCoordLat, lonlat = True)
+	healpy.visufunc.graticule()
+
+
+	print(zip(list(galCoordLon), list(galCoordLat)))
+	plt.figure()
+	plt.plot(galCoordLon)
+	plt.twinx().plot(galCoordLat, c = 'r')
+	plt.show()
+
+	galCoordSampled = np.deg2rad(np.vstack([galCoordLon, galCoordLat])[:, np.newaxis])
+	pixelCoord = np.deg2rad(np.vstack([pixel_theta, pixel_phi])[..., np.newaxis])
+
+	a_1 = np.square(np.sin(0.5 * (galCoordSampled[0] - pixelCoord[0]))) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.square(np.sin(0.5 * (galCoordSampled[1] - pixelCoord[1])))
+	deltaLoc = 2. * np.arctan2(np.sqrt(a_1), np.sqrt(1 - a_1))
+
+	healpy.mollview(np.min(deltaLoc, axis = 1))
+	healpy.projplot(galCoordLon, galCoordLat, lonlat = True)
+	plt.show()
+	#deltaLoc = np.arccos(np.sin(galCoordSampled[0]) * np.sin(pixelCoord[0]) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.cos(galCoordSampled[1] - pixelCoord[1]))
+	
+	mask = np.logical_not(np.any(np.rad2deg(deltaLoc) < 90, axis = 1)) # Assume 70 degrees field of view in each direction. phi modified to range from0  -> 360 as well for equal weighting.
+	#mask = np.logical_not(pixel_phi > -30.)
+	hpMapMasked.mask = mask
+
+	#print(mask.shape, hpMap.shape, deltaLoc.shape, galCoordSampled.shape, pixelCoord.shape)
+	#print(hpMap.shape, hpMap.shape)
+	#hpMap.mask = mask
+
+	#print(hpMap.shape, hpMap.shape, hpMap.real.shape)
+
+
+	print('Map Reals')
+
+	'''
+	for i in range(galCoordSampled.shape[2]):
+		healpy.mollview(deltaLoc[:, i])
+		print(galCoordLon.shape, galCoordLon[i])
+		healpy.projscatter([galCoordLon[i]], [galCoordLat[i]], lonlat = True, c = 'g')
+		plt.savefig('./{0}.png'.format(i))
+ 		plt.clf()
+
+ 	plt.close('all')
+	'''
+	'''
+	skyCoord = cachedSkyCoords('Cas A')
+	print(skyCoord, skyCoord.galactic)
+	for bodyArr in plotLists:
+		print(bodyArr)
+		healpy.projplot(np.array(bodyArr).T, lonlat = True)
+	'''
+	healpy.mollview(hpMap.real)
+	healpy.visufunc.graticule()
+	plt.show()
+	healpy.mollview(hpMapMasked.mask)
+	healpy.projplot(galCoordLon, galCoordLat, lonlat = True, coord = 'G')
+	healpy.visufunc.graticule()
+	plt.show()
+	healpy.mollview(hpMapMasked)
+	healpy.visufunc.graticule()
+
+	skyCoord = astropy.coordinates.SkyCoord.from_name('Cas A')
+	print(skyCoord.galactic)
+	healpy.projscatter([skyCoord.galactic.l.deg], [skyCoord.galactic.b.deg], lonlat = True, c = 'r')
+
+	skyCoord = astropy.coordinates.SkyCoord.from_name('Cyg A')
+	print(skyCoord.galactic)
+	healpy.projscatter([skyCoord.galactic.l.deg], [skyCoord.galactic.b.deg], lonlat = True, c = 'g')
+	
+	skyCoord = astropy.coordinates.SkyCoord.from_name('Vir A')
+	print(skyCoord.galactic)
+	healpy.projscatter([skyCoord.galactic.l.deg], [skyCoord.galactic.b.deg], lonlat = True, c = 'b')
+
+	skyCoord = astropy.coordinates.SkyCoord.from_name('Polaris')
+	print(skyCoord.galactic)
+	healpy.projscatter([skyCoord.galactic.l.deg], [skyCoord.galactic.b.deg], lonlat = True, c = 'm')
+
+	plt.show()
+	#healpy.mollview(hpMap.real,deg=True, rot = [90, 0], coord = 'CG')
+	#healpy.mollview(hpMap.real, deg=True, rot = [0, 90], coord = 'CG')
+
+	exit;
+
+'''
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void _cython_loop(double[:] kRVec, double[:] kZeroBool, double[:, :] phi, double[:, :] theta, int lMax, complex[:] results, float preFac, int[:] index) nogil:
+
+	cdef int l, m
+	cdef complex lRev
+	cdef complex[:, :, :] j_l, y_lm_star
+
+	for l in prange(lMax):
+		j_l = csc.spherical_jn(l, kRVec)
+		j_l[kZeroBool] = 0.
+		lRev = (4 * np.pi * (-1j)**l)
+		for m, in range(i + 1):
+			y_lm_star = (csc.sph_harm(m, l, phi, theta)).conjugate()
+			results[index[l,m]] = preFac * (inputDropped * j_l * y_lm_star.transpose()).sum() / lRev
+'''
+
+def cartToSpherical(uvw):
+	print(uvw.shape)
+
+	# r = sqrt(sq(x) + sq(y) + sq(z))
+	# theta = acos(z / r)
+	# phi = atan(y / x)
+	
+	#r = np.sqrt(np.sum(np.square(uvw), axis = 2))
+	r = np.sqrt(np.sum(np.square(uvw[0]), axis = (1)))
+	r = np.repeat(r[np.newaxis], uvw.shape[0], axis = 0)
+
+	theta = np.arccos(uvw[..., 2] / r)
+	phi = np.arctan2(uvw[..., 1], uvw[..., 0]) + np.pi # Scipy requires 0 -> 2pi
+
+	zerothBaselines = np.where(r == 0.)
+	theta[zerothBaselines] = np.pi / 2.
+	phi[zerothBaselines] = np.pi
+	return r, theta, phi
+
 def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocation, lVec, mVec):
 	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, saveImage, radialLabelAngle, colorBar, obsSite, outputFolder = plotOptions
 	dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 
-	if not stationLocation:
-		print('Assuming we are observing IE613')
-		telescopeLoc = astropy.coordinates.EarthLocation( lat = 53.095 * u.deg, lon = -7.9218 * u.deg, height = 100 * u.m )
-	else:
-		telescopeLoc = astropy.coordinates.EarthLocation( lat = stationLocation[0] * u.deg, lon = stationLocation[1] * u.deg, height = stationLocation[2] * u.m )
+	telescopeLoc = astropy.coordinates.EarthLocation( lat = stationLocation[0] * u.deg, lon = stationLocation[1] * u.deg, height = stationLocation[2] * u.m )
 	latLon = telescopeLoc.to_geodetic()
 
 	if len(dateTime) == 15:

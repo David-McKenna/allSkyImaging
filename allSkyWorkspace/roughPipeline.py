@@ -46,11 +46,12 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 	else:
 		raise RuntimeError('Unknown observation file type.')
 	print(deltasLoc)
-	posXPol, posYPol, lon, lat, height, arrayLoc, __ = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
+	posXPol, posYPol, lon, lat, height, arrayLoc, antLocs = allSkyImager.parseiHBAField(fieldLoc, deltasLoc, activation, rcuMode, True)
 
 	print(lon, lat, height)
-
+	
 	stationLocation = [lat, lon, height]
+	np.save('antLoc.npy', posXPol)
 
 	posX = posXPol[:, 0, np.newaxis]
 	posY = posYPol[:, 1, np.newaxis]
@@ -59,7 +60,6 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 
 	if not plotOptions[-1]:
 		plotOptions[-1] = '/'.join(outputFile.split('/')[:-1]) + '/'
-
 
 	with h5py.File(outputFile, 'r+') as corrRef:
 		if obsType != 'acc':
@@ -85,7 +85,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 				corrArr = corrRef['{0}/correlationArray'.format(groupPrefix)]
 			datesArr = np.vstack(corrArr.attrs.values()).astype(str)[:, -1]
 
-			allSkyData = allSkyImager.generatePlots(corrArr, antPos, plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation, stationRotation = rotation)
+			allSkyData = allSkyImager.generatePlots(corrArr, [antPos, antLocs], plotOptions, datesArr, rcuMode, int(subbandVal), calibrationX = calibrationX, calibrationY = calibrationY, baselineLimits = baselineLimits, stationLocation = stationLocation, stationRotation = rotation)
 			#print(allSkyData)
 			# Currently assuming we will always generate plots for both X and Y polarisations
 			allSkySubband = np.stack([allSkyData['X'], allSkyData['Y']], axis = -1)
@@ -93,7 +93,7 @@ def main(fileLocation, obsType = 'XST', breakThings = False, rcuMode = None, sub
 			imageArr[...] = allSkySubband
 
 def checkRequiredFiles(stationName):
-	files = [[defaultField, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/{0}-AntennaField.conf'.format(stationName)], [defaultDeltas, 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/{0}-iHBADeltas.conf'.format(stationName)], [lbaRotation, 'https://raw.githubusercontent.com/cosmicpudding/lofarimaging/master/stationrotations.txt']]
+	files = [[defaultField.replace('IE613', stationName), 'https://raw.githubusercontent.com/David-McKenna/SWHT/hbaDeltas/SWHT/data/LOFAR/StaticMetaData/{0}-AntennaField.conf'.format(stationName)], [defaultDeltas.replace('IE613', stationName), 'https://raw.githubusercontent.com/David-McKenna/SWHT/hbaDeltas/SWHT/data/LOFAR/StaticMetaData/iHBADeltas/{0}-iHBADeltas.conf'.format(stationName)], [lbaRotation, 'https://raw.githubusercontent.com/cosmicpudding/lofarimaging/master/stationrotations.txt']]
 	currFiles = []
 	for filePath, defaultLocation in files:
 		if not os.path.exists(filePath):
