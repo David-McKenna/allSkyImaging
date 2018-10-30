@@ -14,6 +14,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.patheffects as mplPe
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from functools import wraps
 import multiprocessing as mp
@@ -31,15 +32,24 @@ ffmpegLoc = "/cphys/ugrad/2015-16/JF/MCKENND2/Downloads/ffmpeg-4.0.2-64bit-stati
 
 def cache(function):
 	cachedLookup = {}
+	if os.path.exists('./cacheDict.npy'):
+		cachedLookup = np.load('./cacheDict.npy').item()
 	@wraps(function)
 	def trueFunc(*args):
 		if args in cachedLookup:
 			return cachedLookup[args]
 
+#		if function == saveCache:
+#			np.save('./cacheDict.npy', cachedLookup)
+
 		result = function(*args)
 		cachedLookup[args] = result
 		return result
 	return trueFunc
+
+@cache
+def saveCache(save):
+	return
 
 def calcFreq(rcuMode, subband):
 	baseFreq = 100.0
@@ -123,17 +133,17 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 	arrayLoc = parseBlitzFile(arrayLines, arrayName, False)
 	antLocs = parseBlitzFile(arrayLines, arrayName, True)
 
+
+
 	print(antLocs[0], antLocs[0, 0, :], antLocs[0, :, 0])
 	posX = antLocs[:, 0, :]
-	posY = antLocs[:, 1, :]
 
-	np.save('antLoc.npy', np.stack([posX, posY], axis = -1))
+	posY = antLocs[:, 1, :]
 
 	if activeElems:
 		posX += arrayDeltas[activeElements]
 		posY += arrayDeltas[activeElements]
-	
-	np.save('antLoc2.npy', np.stack([posX, posY], axis = -1))
+
 	# select the right set of antennas
 	if not EU:
 		nElem = posX.shape[0]
@@ -163,7 +173,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 		#        posypol(nElem/2+1:nElem, :) = posypol(nElem/2+1:nElem, :) / rotmat2;
 		####Matlab code end
 
-		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley (don't have access to orignal source). Untested as I don't have matlab to test the actual intended output and haven't pointed as a core/remote station yet.
+		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley (don't have access to orignal source). Untested as I don't have matlab to test the actual intended output and haven't pointed at a core/remote station yet.
 		rotationMatrixOne = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
 		rotationMatrixTwo = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
 
@@ -188,6 +198,7 @@ def parseiHBAField(afilename, hbaDeltasFile, activeElems, rcuMode, EU):
 		posY = posY * np.linalg.pinv( rotationMatrix )
 
 	posX = np.array(posX)
+
 	posY = np.array(posY)
 	# obtain longitude and latitude of the station
 	# David McKenna: I don't want to touch this wizardry. Looks a lot like the code from Michiel Brentjens' lofar-antenna-positions though, so I supplemented it with his height code.
@@ -339,7 +350,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 	frequency = calcFreq(rcuMode, subband) * 1e6
 
 	#raw_input((xxCorr + yyCorr).shape)
-	test = swhtSkyImage(xxCorr + yyCorr, rawAnts, stationLocation, dateArr, 15, frequency)
+	#test = swhtSkyImage(yyCorr, rawAnts, stationLocation, dateArr, 64, frequency)
 
 	labelOptions = [dateArr, rcuMode, subband, frequency]
 
@@ -379,7 +390,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		xFileLoc = []
 		for i in range(allSkyImX.shape[-1]):
-			labelOptionsX[0] = str(dateArr[i])
+			labelOptionsX[0] = str(dateArr[min(i, len(dateArr) - 1)])
 			labelOptionsX[0] += '.{0:02d}'.format(i)
 			labelOptionsX[-1] = figNum
 			figNum += 1
@@ -414,7 +425,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 
 		yFileLoc = []
 		for i in range(allSkyImY.shape[-1]):
-			labelOptionsY[0] = str(dateArr[i])
+			labelOptionsY[0] = str(dateArr[min(i, len(dateArr) - 1)])
 			labelOptionsY[0] += '.{0:02d}'.format(i)
 			labelOptionsY[-1] = figNum
 			figNum += 1
@@ -440,7 +451,7 @@ calibrationX = None, calibrationY = None, baselineLimits = None, stationLocation
 		labelOptionsI = labelOptions + ['I', 0]
 		stokesILoc = []
 		for i in range(stokes_I.shape[-1]):
-			labelOptionsI[0] = str(dateArr[i])
+			labelOptionsI[0] = str(dateArr[min(i, len(dateArr) - 1)])
 			labelOptionsI[0] += '.{0:02d}'.format(i)
 			labelOptionsI[-1] = figNum
 			figNum += 1
@@ -651,7 +662,7 @@ def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, freque
 	print('Map Start')
 	#results = SWHT.util.array2almVec(ores)
 	#hpMap = healpy.ma(healpy.alm2map(results, 64))
-	hpMap = np.log2(np.abs(healpy.alm2map(results, 64)))
+	hpMap = healpy.alm2map(results, 64)
 
 	galRotator = healpy.rotator.Rotator(coord = ['C','G'])
 	hpMap = galRotator.rotate_map(hpMap)
@@ -702,15 +713,36 @@ def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, freque
 	galCoordSampled = np.deg2rad(np.vstack([galCoordLon, galCoordLat])[:, np.newaxis])
 	pixelCoord = np.deg2rad(np.vstack([pixel_theta, pixel_phi])[..., np.newaxis])
 
-	a_1 = np.square(np.sin(0.5 * (galCoordSampled[0] - pixelCoord[0]))) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.square(np.sin(0.5 * (galCoordSampled[1] - pixelCoord[1])))
-	deltaLoc = 2. * np.arctan2(np.sqrt(a_1), np.sqrt(1 - a_1))
+	print(galCoordSampled.shape, pixelCoord.shape)
+	#a_1 = np.square(np.sin(0.5 * (galCoordSampled[0] - pixelCoord[0]))) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.square(np.sin(0.5 * (galCoordSampled[1] - pixelCoord[1])))
+	#a_2 = np.square(np.sin(0.5 * (pixelCoord[0] - galCoordSampled[0]))) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.square(np.sin(0.5 * (pixelCoord[1] - galCoordSampled[1])))
+	
+	#deltaLocAntiClockwise = (np.arctan2(np.sqrt(a_1), np.sqrt(1. - a_1)))[..., np.newaxis]
+	#deltaLocClockwise = (np.arctan2(np.sqrt(a_2), np.sqrt(1. - a_2)))[..., np.newaxis]
+	
+	deltaLocAntiClockwise = greatCircleAngular(galCoordSampled, pixelCoord)[..., np.newaxis]
+	deltaLocClockwise = greatCircleAngular(galCoordSampled, pixelCoord)[..., np.newaxis]
+	print(deltaLocAntiClockwise.shape, deltaLocClockwise.shape)
+	deltaLoc = np.stack([deltaLocAntiClockwise, deltaLocClockwise], axis = -1)
+	print(deltaLoc.shape)
+	deltaLoc = np.nanmin(deltaLoc, axis = -1)[..., 0]
+
+	# When we get close to the equator every forumla for angle I've tried we lose precision, or introduces other errors.
+	# 	to account for this issue, if we detect a frame with a sub 0.9 * pi maxima, we will add on the difference
+	#	Another approach to this could be a scaling, but on my sample I got better results with an offset as the furthest point approached a delta function
+	# 	making scaling have a minimal effect apart form the lat = 0 case
+	maxima = np.max(deltaLoc, axis = 0)
+	deltaLoc[:, maxima < 0.9 * np.pi] += np.pi - maxima[maxima < 0.9 * np.pi]
+
+	print(deltaLoc.shape)
 
 	healpy.mollview(np.min(deltaLoc, axis = 1))
 	healpy.projplot(galCoordLon, galCoordLat, lonlat = True)
+	healpy.visufunc.graticule()
 	plt.show()
 	#deltaLoc = np.arccos(np.sin(galCoordSampled[0]) * np.sin(pixelCoord[0]) + np.cos(galCoordSampled[0]) * np.cos(pixelCoord[0]) * np.cos(galCoordSampled[1] - pixelCoord[1]))
 	
-	mask = np.logical_not(np.any(np.rad2deg(deltaLoc) < 90, axis = 1)) # Assume 70 degrees field of view in each direction. phi modified to range from0  -> 360 as well for equal weighting.
+	mask = np.logical_not(np.any(np.rad2deg(deltaLoc) < 45, axis = 1)) # Assume 70 degrees field of view in each direction. phi modified to range from0  -> 360 as well for equal weighting.
 	#mask = np.logical_not(pixel_phi > -30.)
 	hpMapMasked.mask = mask
 
@@ -728,6 +760,7 @@ def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, freque
 		healpy.mollview(deltaLoc[:, i])
 		print(galCoordLon.shape, galCoordLon[i])
 		healpy.projscatter([galCoordLon[i]], [galCoordLat[i]], lonlat = True, c = 'g')
+		healpy.visufunc.graticule()
 		plt.savefig('./{0}.png'.format(i))
  		plt.clf()
 
@@ -748,6 +781,7 @@ def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, freque
 	healpy.visufunc.graticule()
 	plt.show()
 	healpy.mollview(hpMapMasked)
+	healpy.projplot(galCoordLon, galCoordLat, lonlat = True)
 	healpy.visufunc.graticule()
 
 	skyCoord = astropy.coordinates.SkyCoord.from_name('Cas A')
@@ -770,6 +804,24 @@ def swhtSkyImage(inputCorrelations, xyz, stationLocation, timesArr, lMax, freque
 	#healpy.mollview(hpMap.real,deg=True, rot = [90, 0], coord = 'CG')
 	#healpy.mollview(hpMap.real, deg=True, rot = [0, 90], coord = 'CG')
 
+
+
+	R = np.cos(np.square(pixel_phi))
+	X = R * np.cos(pixel_phi) * np.cos(pixel_theta)
+	Y = R * np.sin(pixel_phi) * np.sin(pixel_theta)
+	Z = R * np.cos(pixel_phi)[..., np.newaxis]
+
+	X = X.reshape(32, 64)
+	Y = Y.reshape(32, 64)
+
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection = '3d')
+
+	minVal = -1. * np.ma.min(hpMap.real)
+	norm_values = (hpMapMasked.real + minVal) / (np.ma.max(hpMapMasked.real) + minVal)
+	ax.plot_surface(X, Y, Z, facecolors = mpl.cm.jet(norm_values))
+
+	plt.show()
 	exit;
 
 '''
@@ -789,6 +841,22 @@ cdef void _cython_loop(double[:] kRVec, double[:] kZeroBool, double[:, :] phi, d
 			y_lm_star = (csc.sph_harm(m, l, phi, theta)).conjugate()
 			results[index[l,m]] = preFac * (inputDropped * j_l * y_lm_star.transpose()).sum() / lRev
 '''
+
+def greatCircleAngular(angCoord1, angCoord2):
+	# Wikipedia 
+	lon1, lon2 = angCoord1[0], angCoord2[0]
+	lat1, lat2 = angCoord1[1], angCoord2[1]
+
+	dlat = lat2 - lat1
+	dlon = lon2 - lon1
+
+	nom = np.square(np.cos(lat2) * np.sin(dlon)) + np.square(np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon))
+	denom = np.sin(lat1) * np.sin(lat2) + np.cos(lat1) + np.cos(lat2) * np.cos(dlon)
+
+	inputShape = nom.shape
+	dsig = np.arctan2(nom.flatten(), denom.flatten()).reshape(inputShape)
+	return dsig
+
 
 def cartToSpherical(uvw):
 	print(uvw.shape)
@@ -937,7 +1005,7 @@ def plotAllSkyImage(allSkyImage, plotOptions, labelOptions, pixels, stationLocat
 		plotFilename = "{6}{0}_{1}_sb{2}_mode{3}{4}_{5}MHz.png".format(dateTime, obsSite, subband, rcuMode, polarity, int(frequency/1e6), outputFolder)
 		plotFilename = plotFilename.replace(' ', '_').replace(':', '')
 		print("Saving output to {0}".format(plotFilename))
-	 	
+		
 		fig.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
 		plt.close(figNum)
 		return plotFilename
