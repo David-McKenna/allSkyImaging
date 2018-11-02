@@ -49,7 +49,7 @@ def importXST(fileName, rcuMode = None, calibrationFile = None, outputFile = Non
 			with open(fileName, 'rb') as dataRef:
 				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
 				reshapeSize = datasetComplex.size / (192 ** 2)
-				if datasetComplex.size < 1000:
+				if datasetComplex.size < (192 ** 2) - 1:
 					print('INCOMPLETE FILE SKIPPED: {0}'.format(fileName))
 					continue
 
