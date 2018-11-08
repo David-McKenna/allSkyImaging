@@ -5,6 +5,8 @@ import h5py
 import ast
 import datetime
 
+from genericImportTools import processInputLocation, processRCUMode, includeCalibration
+
 def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibrationFile = None, activationPattern = None):
 	"""Summary
 	
@@ -53,17 +55,10 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 	# Count the number of incomplete files
 	nullFiles = 0
 
-	if groupNamePrefix == 'allSkyObservation':
-		groupNamePrefix = 'allSky-mode{0}'.format(rcuMode)
-
-		if calibrationFile:
-			groupNamePrefix += '-calibrated'
-
 	# Create an output file containing the observations in a compressed h5 dataset
 	with h5py.File(outputFile, 'a') as outputRef:
 
 		# Initialise the file, observation group
-		datasetComplexHead = {'processTime': str(datetime.datetime.utcnow())}
 		groupRef = outputRef.require_group(groupNamePrefix)
 
 		dataArr = []
@@ -74,8 +69,8 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 				reshapeSize = datasetComplex.size / (192 ** 2)
 
 				# Check if the file is incomplete (missing bytes or corrupted, all files should be multiples of a 192, 192 array)
-				if not datasetComplex.size % (192 ** 2):
-					print('INCOMPLETE FILE SKIPPED: {0}'.format(fileName))
+				if datasetComplex.size % (192 ** 2) > 0:
+					print('INCOMPLETE FILE SKIPPED: {0}, SIZE ONLY {1}, MISSING {2} DATAPOINTS'.format(fileName, datasetComplex.size, (192 ** 2) - datasetComplex.size % (192 ** 2)))
 					nullFiles += 1
 					continue
 
@@ -84,6 +79,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 				# Extract basic information from the filename
 				fileNameMod = fileName.split('/')[-1]
 				fileNameExtract = fileNameMod.split('_')
+				dateTimeObj = datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S')
 				dateTime = str(datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S'))
 				subbandStr = fileNameExtract[2]
 
@@ -95,28 +91,38 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 						logData = [ast.literal_eval(line.split(' ')[-1].strip('\n')) for line in logRef[:6]]
 
 						assert(logData[0] == rcuMode)
-						assert(logData[1] == int(subband[2:]))
+						assert(logData[1] == subbandStr[2:])
 						logData[2] = int(logData[2].strip('s'))
 						logData[3] = int(logData[3].strip('s')) / logData[2]
+						logData[4] = dateTimeObj
+						logData[5] = str(datetime.datetime.strptime(''.join(logData[4]), '%Y%m%d@%H%M%S'))
 
 						# If an assert has been raised here, you have an observation taken while the activation pattern was not fully applied.
 						assert((rcuMode < 5) or not False in ['253' not in line for line in logRef[6:]])
 
 				# Otherwise, update the metadata with information we can gleam from the filename
 				else:
-					logData = metadata + [None, None]
+					logData = metadata + [dateTimeObj, None]
 					logData[1] = int(subbandStr[2:])
 					logData[3] = reshapeSize
+					logData[4] = dateTimeObj
 
 				dataArr.append(np.array([subbandStr, dateTime, datasetComplex, reshapeSize, logData], dtype = object))
 
+		if groupNamePrefix == 'allSkyObservation':
+			groupNamePrefix = 'allSky-mode{0}-{1}'.format(rcuMode, str(dataArr[0][1]))
+
+			if calibrationFile:
+				groupNamePrefix += '-calibrated'
+
+		# Initialise the file, observation group
+		groupRef = outputRef.require_group(groupNamePrefix)
 
 		# Group our data by subband
 		dataArr= np.vstack(dataArr)
 		subbandArr = np.unique(dataArr[:, 0])
 		dateTimeArr = [dataArr[:, 1][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
 		datasetComplexArr = [dataArr[:, 2][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
-		reshapeSizeArr = [list(dataArr[:, 3][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
 		logDataArr = [list(dataArr[:, 4][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
 				
 		for idx, subband in enumerate(subbandArr):
@@ -130,23 +136,20 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 			corrDataset = groupRef.require_dataset("{0}/correlationArray".format(subband), datasetComplex.shape, dtype = np.complex128, compression = "lzf")
 			corrDataset[...] = datasetComplex
 
-			# Save the activation pattern used for the observation as an attribute
-			corrDataset.attrs.create('activationPattern', str(activationPattern))
-
 			# For each subband, iterate over every saved frame and fill in the group attributes.
 			timeStep = 0
 			for dtIdx, logData in enumerate(logDataArr[idx]):
-					currDelta = reshapeSizeArr[idx][dtIdx]
-					mode, subband, intTime, intCount = logData[idx][dtIdx]
+				print('Imported frame: {0}'.format(logData[-2]))
+				mode, subband, intTime, intCount, dateTimeObj, endTime = logData
 
-					timeDelta = datetime.timedelta(seconds = intTime / 2.)
-					intTime = datetime.timedelta(seconds = intTime)
+				timeDelta = datetime.timedelta(seconds = intTime / 2.)
+				intTime = datetime.timedelta(seconds = intTime)
 
-					# Each integration gets it's own frame, so it needs a unique attribute to corretly timestamp it.
-					# We log the time of the integration as the central time to better account for the sky during long integrations
-					for i in range(intCount):
-						corrDataset.attrs.create(str(timeStep), [mode, subband, intTime, dateTimeArr[idx][dtIdx] + timeDelta * (i + 1)])
-						timeStep += 1
+				# Each integration gets it's own frame, so it needs a unique attribute to corretly timestamp it.
+				# We log the time of the integration as the central time to better account for the sky during long integrations
+				for i in range(intCount):
+					corrDataset.attrs.create(str(timeStep), str({'mode': mode, 'subband': subband, 'integrationTime': intTime, 'activationPattern': str(activationPattern), 'integrationMidpoint': str(dateTimeObj + timeDelta * (i + 1)), 'integrationEnd': endTime})) # Can be decoded with ast
+					timeStep += 1
 
 		# If provided a calibration file, include it in the dataset. This call is skipped if a calibration is already included
 		#	as we do not expect the calibration have majour changes over time.

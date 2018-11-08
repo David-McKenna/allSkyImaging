@@ -5,6 +5,8 @@ import os
 import sys
 import select
 import ast
+import urllib
+import datetime
 
 
 def processInputLocation(fileName, dataType):
@@ -67,7 +69,7 @@ def processRCUMode(folderPath, calFile = None, modeApprox = 3):
 		print("We have been unable to determine the rcuMode form the input variables. Type 'exit' in the next 10 seconds to kill the script, or wait for the script to continue with the assumption of mode {0}.".format(modeApprox))
 		inputVar, __, __ = select.select([sys.stdin], [], [], 10)
 
-		if input != 'exit':
+		if inputVar != 'exit':
 			rcuMode = modeApprox
 		else:
 			exit()
@@ -168,18 +170,23 @@ rcuMode2Str = [None, 							# 0
 			'CalTable-{0}-HBA-170_230.dat',		# 6
 			'CalTable-{0}-HBA-210_250.dat']		# 7
 def checkRequiredFiles(fileLocations, stationName, rcuMode):
+	"""Summary
+	
+	Args:
+	    fileLocations (TYPE): Description
+	    stationName (TYPE): Description
+	    rcuMode (TYPE): Description
+	"""
 	remoteURLDict = fileLocations['remoteURL']
 
 	for key, value in fileLocations.items():
-		if 'calibration' not in key:
-			if isinstance(value, dict): # Skip over the remote URL dictionary
-				continue
-
+		if key not in ['outputH5Location', 'remoteURL', 'calibrationLocation']:
 			# If the local file doesn't exist, download a copy.
 			if not os.path.exists(value):
+				print('Downloading {0} from {1}'.format(value[2:], remoteURLDict[key] + value[2:]))
 				urllib.urlretrieve(remoteURLDict[key] + value[2:], value)
 
-		else: # Grabbing the calibration file needs a few changes to the call
+		elif key == 'calibrationLocation': # Grabbing the calibration file needs a few changes to the call
 			if os.path.exists(value):
 				continue
 			else:
@@ -189,6 +196,15 @@ def checkRequiredFiles(fileLocations, stationName, rcuMode):
 				urllib.urlretrieve(remoteName, value)
 
 def processTxt(fileLoc, stationName):
+	"""Summary
+	
+	Args:
+	    fileLoc (TYPE): Description
+	    stationName (TYPE): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	with open(fileLoc, 'r') as fileRef:
 		stationLine = [line for line in fileRef if stationName.upper() in line][0]
 		stationRotation = -1. * float(stationLine.split(' ')[1][:-2])

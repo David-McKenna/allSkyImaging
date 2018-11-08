@@ -7,6 +7,8 @@ Attributes:
 import numpy as np
 import ast
 
+from .genericImportTools import parseBlitzFile
+
 elemsDict={'Effelsberg_elements_20091110' : [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0], 
 	'Generic_International_Station_20091110' : [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11],
 	'Generic_Int_201512' : [0,5,3,1,8,3,12,15,10,13,11,5,12,12,5,2,10,8,0,3,5,1,4,0,11,6,2,4,9,14,15,3,7,5,13,15,5,6,5,12,15,7,1,1,14,9,4,9,3,9,3,13,7,14,7,14,2,8,8,0,1,4,2,2,12,15,5,7,6,10,12,3,3,12,7,4,6,0,5,9,1,10,10,11,5,11,7,9,7,6,4,4,15,4,1,15],
@@ -15,13 +17,18 @@ elemsDict={'Effelsberg_elements_20091110' : [1,4,13,15,11,9,14,1,15,0,8,2,11,3,1
 
 def configureStation(fileLocations, activeElems, rcuMode, EU):
 	"""Previously known as parseiHBAField, rewritten to be a lot cleaner and easier to maintain. Renamed to more clearly describe it's purpose.
+
+	Initially ported from ASTRON's MATLab code to Python by Joe McCauley.
 	
 	Args:
-	    afilename (TYPE): Description
-	    hbaDeltasFile (TYPE): Description
-	    activeElems (TYPE): Description
-	    rcuMode (TYPE): Description
-	    EU (TYPE): Description
+	    fileLocations (list): Location of the *-AntennaField.conf and *-iHBADeltas.conf files
+	    activeElems (string): Name of the activation pattern ()
+	    rcuMode (int): RCU Mode during observation
+	    EU (bool): Are we using an international station? Set this to True.
+	
+	
+	Returns:
+	    posXPol, [lon, lat, height], arrayLoc, antLocs: X-Polarisation antenna locations (matches Y), station Location (lon, lat, alt (m)), array location in GCRS, Raw GCRC and Station-Coordinate antenna locations
 	"""
 	afilename, hbaDeltasFile = fileLocations['antennaField'], fileLocations['hbaDeltas']
 
@@ -71,6 +78,11 @@ def configureStation(fileLocations, activeElems, rcuMode, EU):
 	
     # Parse and apply the rotation matrix from the blitz file to convert to station coordinates from real coordinates.
     # If 'HBA0' is in the array config, we have a split array defined and thus need to rotate the elements individually.
+    # This should only be triggered when EU is false.
+
+    # Use matrices for easier linear algebra operations
+	posX = np.matrix(posX)
+	posY = np.matrix(posY)
 	if 'HBA0\n' in arrayLines:
 		####Matlab code. Needs porting for completeness
 		#        while ~((strcmp(token, 'HBA1') && strcmp(prevtoken, 'ROTATION_MATRIX')) || isempty(token))
@@ -86,13 +98,10 @@ def configureStation(fileLocations, activeElems, rcuMode, EU):
 		#        posypol(nElem/2+1:nElem, :) = posypol(nElem/2+1:nElem, :) / rotmat2;
 		####Matlab code end
 
-		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley (don't have access to orignal source). 
+		# David McKenna: Port attempted based on python implementation of else statement by Joe McCauley (don't have access to orignal source outside of the block left above). 
 		# Untested as I don't have matlab to test the actual intended output and haven't pointed from a core/remote station yet.
 		rotationMatrixOne = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
 		rotationMatrixTwo = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName + '0', False).T
-
-		posX = np.matrix(posX)
-		posY = np.matrix(posY)
 
 		posX[:, :nElem/2+1] = posX[:, :nElem/2+1] * np.linalg.pinv(rotationMatrixOne)
 		posY[:, :nElem/2+1] = posY[:, :nElem/2+1] * np.linalg.pinv(rotationMatrixOne)
@@ -100,37 +109,35 @@ def configureStation(fileLocations, activeElems, rcuMode, EU):
 		posX[:, nElem/2+1:] = posX[:, nElem/2+1:] * np.linalg.pinv(rotationMatrixTwo)
 		posY[:, nElem/2+1:] = posY[:, nElem/2+1:] * np.linalg.pinv(rotationMatrixTwo)
 
-		roationMatrix = np.dstack([rotationMatrixOne, rotationMatrixTwo])
+		rotationMatrix = np.dstack([rotationMatrixOne, rotationMatrixTwo])
 
 	else:
 		rotationMatrix = parseBlitzFile(arrayLines, 'ROTATION_MATRIX ' + arrayName, False).T #has to be transposed to get into correct format for further operations below
 		rotationMatrix = np.matrix(rotationMatrix)
 
-		posX = np.matrix(posX)
-		posY = np.matrix(posY)
 		posX = posX * np.linalg.pinv(rotationMatrix)
 		posY = posY * np.linalg.pinv(rotationMatrix)
 
 	posX = np.array(posX)
 	posY = np.array(posY)
 
-	# David McKenna: I don't want to touch this wizardry. Looks a lot like the code from Michiel Brentjens' lofar-antenna-positions, 
-	# 	 I supplemented it with his height code to get the last bit of coordinate information needed.
-	wgs84_f = 1 / 298.257223563
-	wgs84_a = 6378137
-	wgs84_e2 = wgs84_f * (2 - wgs84_f)
+	# David McKenna: I don't want to touch this wizardry. But I recognise the code from Michiel Brentjens' lofar-antenna-positions.
+	# Only changes to below this this block are supplimeneting it with Michiel's height code and variable renaming to make pylint happy.
+	wgs84F = 1 / 298.257223563
+	wgs84A = 6378137
+	wgs84E2 = wgs84F * (2 - wgs84F)
 	lon = np.arctan2(arrayLoc[1], arrayLoc[0])
 	lon=lon* 180 / np.pi
-	r = np.sqrt(arrayLoc[0]**2 + arrayLoc[1]**2)
-	prev_lat = 100000
-	lat = np.arctan2(arrayLoc[2], r)
-	while (abs(lat - prev_lat) >= 1e-12):
-		prev_lat = lat
-		normalized_earth_radius = 1 / np.sqrt((1-wgs84_f)**2 * np.sin(lat)**2 + np.cos(lat)**2)
-		lat = np.arctan2(wgs84_e2 * wgs84_a * normalized_earth_radius * np.sin(lat) + arrayLoc[2], r)
+	wgsRad = np.sqrt(arrayLoc[0]**2 + arrayLoc[1]**2)
+	prevLat = 100000
+	lat = np.arctan2(arrayLoc[2], wgsRad)
+	while (abs(lat - prevLat) >= 1e-12):
+		prevLat = lat
+		normalisedEarthRadius = 1 / np.sqrt((1-wgs84F)**2 * np.sin(lat)**2 + np.cos(lat)**2)
+		lat = np.arctan2(wgs84E2 * wgs84A * normalisedEarthRadius * np.sin(lat) + arrayLoc[2], wgsRad)
 
 	lat = lat * 180 /np.pi
-	height = r * np.cos(lat * np.pi / 180.) + arrayLoc[2] * np.sin(lat * np.pi / 180.) - wgs84_a * np.sqrt(1. - wgs84_e2 * np.sin(lat * np.pi / 180.) ** 2)
+	height = wgsRad * np.cos(lat * np.pi / 180.) + arrayLoc[2] * np.sin(lat * np.pi / 180.) - wgs84A * np.sqrt(1. - wgs84E2 * np.sin(lat * np.pi / 180.) ** 2)
 
 
-	return posX, posY, [lon, lat, height], arrayLoc, antLocs
+	return posX, [lon, lat, height], arrayLoc, antLocs

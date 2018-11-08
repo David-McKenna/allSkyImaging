@@ -1,7 +1,14 @@
+"""Summary
+"""
+import numpy as np
+import scipy.ndimage
 
-from ..dataTools import usefulFunctions
+from . import ftImaging
+from . import swhtImaging
 
-def generatePlots(inputCorrelations, antPosArr, processingOptions, plotOptions, dateArr, rcuMode, subband, stationRotation, stationLocation = None, calibrationArr = None):
+from dataTools.usefulFunctions import calcFreq
+
+def generatePlots(inputCorrelations, antPosArr, options, dateArr, rcuMode, subband, stationRotation, stationLocation = None, calibrationArr = None):
 	"""Summary
 	
 	Args:
@@ -23,33 +30,63 @@ def generatePlots(inputCorrelations, antPosArr, processingOptions, plotOptions, 
 	    baselineLimits (None, optional): Description
 	    stationLocation (None, optional): Description
 	"""
-	crossCorr, posList, rawAnts = __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, options['baselineLimits'])
-	xxCorr, yyCorr, xyCorr, yxCorr = crossCorr
-	posX, posY, posZ = posList
+	processingOptions = options['imagingOptions']
 
-	frequency = usefulFunctions.calcFreq(rcuMode, subband) * 1e6
+	crossCorr, posArr, rawAnts = __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, options['imagingOptions']['baselineLimits'])
+	xxCorr, yyCorr, xyCorr, yxCorr = crossCorr
+
+	corrDict = {
+			'XX': xxCorr,
+			'YY': yyCorr,
+			'XY': xyCorr,
+			'YX': yxCorr
+	}
+
+	frequency = calcFreq(rcuMode, subband) * 1e6
 
 	labelOptions = [dateArr, rcuMode, subband, frequency]
 
-	lVec, mVec = processingOptions['pixelCount']
-	fov = processingOptions['fieldOfView']
+	processDict = {'XX': False, 'YY': False, 'XY': False, 'YX': False}
+	for value in processingOptions['correlationTypes']:
+		if len(value) == 2:
+			processDict[value] = True
 
-	vecRange = np.sin([-1. * fov / 2., fov / 2.])
+		elif value in ['I', 'Q']:
+			processDict['XX'] = True
+			processDict['YY'] = True
 
-	lVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / lVec) or 0.008 ) # Default to 250 pixels for a 180degree field of view
-	mVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / mVec) or 0.008 )
+		elif value in ['U', 'V']:
+			processDict['XY'] = True
+			processDict['YX'] = True
 
-	pixels = np.max([lVec.size, mVec.size])
 
-	mask = np.zeros([lVec.size, mVec.size]).astype(bool)
-	if mask:
-		dist = np.sqrt(np.square(np.meshgrid(lVec)) + np.square(np.meshgrid(mVec)).T)
-		mask[dist >= vecRange[1]] = True
+	rfiFlag = options['rfiMode']
+	if rfiFlag:
+		print('RFI Mode enabled, we will be forcing the FT method of choice (or FFT) and providing a GUI.')
 
-	figNum = 0
+	procMethod = processingOptions['method']
+	if 'ft' in procMethod or rfiFlag:
+		imgData = ftImaging.ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, dateArr)
+	elif 'swht' in procMethod:
+		imgData = swhtImaging.swhtProcessCorrelations(corrDict, options, processDict, rawAnts, stationLocation, dateArr, frequency, labelOptions)
+	else:
+		raise RuntimeError('Unknown processing method "{0}".'.format(procMethod))
+
+	return imgData
 
 def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, baselineLimits):
-
+	"""Summary
+	
+	Args:
+	    inputCorrelations (TYPE): Description
+	    antPosArr (TYPE): Description
+	    calibrationArr (TYPE): Description
+	    subband (TYPE): Description
+	    baselineLimits (TYPE): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	antPos, rawAnts = antPosArr
 	rawAnts = rawAnts[:, 0, :][:, np.newaxis]
 	posX = antPos[..., 0]
@@ -71,25 +108,23 @@ def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, b
 		calMatrixYArr = np.outer(calSubbandY, np.conj(calSubbandY).T)[..., np.newaxis]
 		inputCorrelationsY = np.multiply(np.conj(calMatrixYArr), inputCorrelationsY)
 
-	if baselineLimits:
-		print('Test baseline limits.')
+	if baselineLimits[0] or baselineLimits[1]:
 		baselines = posX - posY.T
-		if baselineLimits[0]:
-			baselineLimits[0] = np.min(baselines) * 1.0001
-			print('By not using autocorrelations the sky is a lot quieter: we are disabling log plotting as a result.')
-			plotOptions[0] = False
-		elif not baselineLimits[1]:
-			baselineLimits[1] = np.max(baselines) * 2.
+		
+		if baselineLimits[0] == 'noAuto':
+			baselineLimits[0] = np.min(baselines[baselines > 0.]) * 1.0001
+
 		minBaseline, maxBaseline = baselineLimits
 
 		baselines = np.logical_or(np.abs(baselines) > maxBaseline, np.abs(baselines) < minBaseline)
 
 		inputCorrelationsX[baselines] = 0.
 		inputCorrelationsY[baselines] = 0.
+
 	# Reference
-	stackedArr = np.zeros(np.array(inputCorrelationsX.shape[:2]) * 2, dtype = 'complex')
-	stackedArr[::2, ::2] = inputCorrelationsX[..., 0]
-	stackedArr[1::2, 1::2] = inputCorrelationsY[..., 0]
+	stackedArr = np.zeros(list(np.array(inputCorrelationsX.shape[:2]) * 2) +  [inputCorrelationsX.shape[2]], dtype = 'complex')
+	stackedArr[::2, ::2] = inputCorrelationsX[...]
+	stackedArr[1::2, 1::2] = inputCorrelationsY[...]
 
 	xxCorr = inputCorrelationsX
 	yyCorr = inputCorrelationsY
@@ -97,54 +132,3 @@ def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, b
 	yxCorr = stackedArr[::2, 1::2]
 
 	return [xxCorr, yyCorr, xyCorr, yxCorr], [posX, posY, posZ], rawAnts
-
-def __processCorrPlot():
-	labelOptions = labelOptions + [polChar, 0]
-	allSkyIm, __, __ = __processAllSkyIm(inputCorrelationsArr, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions)
-	print("{0} Polarisation Processed, begining plotting".format(polChar))
-
-	fileLoc = []
-	for i in range(allSkyIm.shape[-1]):
-		labelOptions[0] = dateArr[i] + 1
-		labelOptions[-1] = figNum
-		figNum += 1
-		fileLoc.append(plotAllSkyImage(allSkyIm[..., i], plotOptions, labelOptions, pixels, stationLocation, lVec, mVec))
-
-	if plotOptions[5] and allSkyIm.shape[-1] > 20:
-		filePrefix = fileLoc[0].split(' ')[0]
-		fileSuffix = '_'.join(fileLoc[0].split('/')[-1].split('_')[1:])[:-4]
-		print("Exporting frames to video at " + "./{0}{1}.mpg".format(filePrefix, fileSuffix))
-		subprocess.call([ffmpegLoc, '-y',  '-r',  '20', '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-vb', '50M', "{0}{1}.mpg".format(filePrefix, fileSuffix)])
-
-
-def __processAllSkyIm(inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, plotOptions, labelOptions):
-	"""Summary
-	
-	Args:
-	    inputCorrelations (TYPE): Description
-	    posX (TYPE): Description
-	    posY (TYPE): Description
-	    frequency (TYPE): Description
-	    lVec (TYPE): Description
-	    mVec (TYPE): Description
-	    stationRotation (TYPE): Description
-	    mask (TYPE): Description
-	    plotOptions (TYPE): Description
-	    labelOptions (TYPE): Description
-	
-	Returns:
-	    TYPE: Description
-	"""
-	allSkyIm = corrToSkyImage(inputCorrelations, posX, posY, frequency, lVec, mVec)
-	allSkyIm = np.rot90(allSkyIm, 3)
-	allSkyIm = np.flipud(allSkyIm)
-	allSkyIm = scipy.ndimage.rotate(allSkyIm, stationRotation, mode = 'constant', cval = 100., reshape = False)
-	
-	allSkyIm[mask] = np.nan
-	allSkyIm[allSkyIm == 100.] = np.nan
-
-	return allSkyIm, plotOptions, labelOptions
-
-@cache
-def cachedSkyCoords(name):
-	return astropy.coordinates.SkyCoord.from_name(name)
