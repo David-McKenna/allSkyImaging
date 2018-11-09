@@ -378,11 +378,17 @@ def swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot = No
 		hpMap[hpMapNeg] = 1.
 
 		hpMap = np.log2(hpMap)
-
-		minV = np.nanpercentile(hpMap[hpMap > 10.], minPercentile)
+		if minPercentile !=0:
+			minV = np.nanpercentile(hpMap[hpMap > 10.], minPercentile)
+		else:
+			minV = 1.
 		maxV = np.nanpercentile(hpMap[hpMap > 10.], maxPercentile)
 	else:
-		minV = np.nanpercentile(hpMap, minPercentile)
+		if minPercentile != 0:
+			minV = np.nanpercentile(hpMap, minPercentile)
+		else:
+			minV = 0.
+
 		maxV = np.nanpercentile(hpMap, maxPercentile)
 
 	cmapVar = plt.get_cmap('jet')
