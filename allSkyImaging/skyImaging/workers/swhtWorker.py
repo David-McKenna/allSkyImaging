@@ -1,4 +1,4 @@
-"""Summary
+"""Mathematical implementation of the SWHT for full sky images.
 """
 
 import scipy.special
@@ -7,22 +7,30 @@ import numpy as np
 from healpy.sphtfunc import Alm as almMap
 
 def swhtWorker(idx, lProc, lMax, kRVec, kZeroBool, inputDropped, phi, theta, preFac, results, uvw):
-	"""Summary
+	"""SWHT implementatino for full sky images.
+	
+	Based on the methodology described by Carrozi 2015
+	
 	
 	Args:
-	    lMax (TYPE): Description
-	    kRVec (TYPE): Description
-	    kZeroBool (TYPE): Description
-	    inputDropped (TYPE): Description
-	    phi (TYPE): Description
-	    theta (TYPE): Description
-	    preFac (TYPE): Description
-	    results (TYPE): Description
-	    uvw (TYPE): Description
+	    idx (int): Multiprocessing ID
+	    lProc (int or list-like): l Values to process (list or upto l)
+	    lMax (int): Maximum overall l value (for MP reference)
+	    kRVec (np.ndarray): Product of k . r for reference
+	    kZeroBool (np.ndarray): Locations of r = 0 to fix issues
+	    inputDropped (np.ndarray): Input correlations, named as we tend to drop the lower triangle for SWHT observations
+	    phi (np.ndarray): Element of UVW plane in psh. coords
+	    theta (np.ndarray): Element of UVW plane in psh. coords
+	    preFac (float): Constant for output
+	    results (np.ndarray): Reference expected output map shape
+	    uvw (np.ndarray): Reference for shapes, can be removed if a better reference is found.
 	
 	Returns:
-	    TYPE: Description
+	    idx, outputHealPyMap: Multiprocessing ID, resulting healpy map
+	
 	"""
+	
+	# Multiprocessing gives a list, single process gives an int.
 	if isinstance(lProc, int):
 		iterL = range(lProc)
 	else:
@@ -35,6 +43,8 @@ def swhtWorker(idx, lProc, lMax, kRVec, kZeroBool, inputDropped, phi, theta, pre
 		
 		lRev = (4 * np.pi * (-1j)**l) # (1,)
 		visBessel = inputDropped.flatten() * np.repeat(j_l, uvw.shape[0], axis = 0) 
+
+		# Healpy dumps m < 0, so don't both calculating them.
 		for m in range(l + 1):
 			y_lm_star = np.conj(scipy.special.sph_harm(m, l, phi.T.flatten(), theta.T.flatten()))# (timeSamples * nants ** 2)
 			resultsIndex = almMap.getidx(lMax - 1, l, m)
@@ -45,6 +55,8 @@ def swhtWorker(idx, lProc, lMax, kRVec, kZeroBool, inputDropped, phi, theta, pre
 	return idx, results
 
 
+# Cython implementation? Couldn't install the libraries on the astro computer so I couldn't test it.
+# Probably doesn't work at all considering how bad my C knowledge is, plus the changes made to the above function since I coded it (no longer hard-types inputs)
 '''
 @cython.boundscheck(False)
 @cython.wraparound(False)

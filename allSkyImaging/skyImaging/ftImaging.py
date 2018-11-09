@@ -1,17 +1,35 @@
-"""Summary
+"""Process correlations through Fourier Transform-based method with these functions.
 """
 import scipy.constants
+import scipy.ndimage
+
 import multiprocessing as mp
 import numpy as np
 from skyPlotter import ftPlot
 
 from workers import ftWorkers
 
-def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, dateArr):
-	"""Summary
+def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, metaDataArr):
+	"""Head function that sets up values needed by both the FFT and DFT.
+	
+	Args:
+	    procMethod (procMethod): Processing method (DFT, FFt, FFT/gauss/0.5 for FFT/method/kernalextrafeature)
+	    rfiFlag (bool): Bool to enable RFI mode (interactive plotting)
+	    corrDict (dict): Dictionary of elements in the format 'CORRELATION': (nAnts x nAnts x nSamples array of correlations)
+	    processDict (dict): Dictionary of correlation times ('XX', 'XY'...) and values of whether or not to process them
+	    options (dict): Standard options dictionary
+	    posArr (np.ndarray): Antenna locations in station coordinates
+	    frequency (float): Frequency of observation (in Hz)
+	    stationRotation (float): Rotation of the station with respect to North
+	    stationLocation (list): [lon, lat, alt] of station
+	    labelOptions (list): List of useful values for plotting
+	    metaDataArr (list): List of str(dict) from observation group attributes
+	
+	Returns:
+	    dict: Output sky images
 	"""
-	#labelOptions = labelOptions + [polChar, 0]
 
+	# No w-term used for FT operations for speedup / due to negligible gains
 	posX, posY, __ = posArr
 
 	lVec, mVec = options['imagingOptions']['pixelCount']
@@ -21,15 +39,18 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 	if rfiFlag:
 		print('RFI Mode enabled, we will be forcing the FT method of choice (or FFT) and providing a GUI.')
 
+	# Get the observing angle + generate the l, m values to FT
 	vecRange = np.cos([-1. * fov, 0])
 
 	lVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / lVec) or 0.008 ) # Default to 256 pixels
 	mVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / mVec) or 0.008 )
 
+	# If needed, mask outside the fov
 	mask = np.zeros([lVec.size, mVec.size], dtype = bool)
 	if options['imagingOptions']['maskOutput']:
 		dist = np.sqrt(np.square(np.meshgrid(lVec)) + np.square(np.meshgrid(mVec)).T)
 		mask[dist >= vecRange[1]] = True
+
 
 	if 'dft' in procMethod:
 		imagingFunc = dftImage
@@ -41,6 +62,7 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 		print('Unknown Processing Method {0}, forcing FFT with a rectangular kernel. (Debug: rfiFlag={1})'.format(procMethod, rfiFlag))
 		options['imagingOptions']['method'] = 'fft/rect'
 
+	# Process the correlations through the provided method
 	procDict = {}
 	for key, value in processDict.items():
 		if value:
@@ -48,7 +70,7 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 			print("{0} Polarisation Processed.".format(key))
 			procDict[key] = allSkyImage
 
-
+	# Process the requirested all sky output types
 	for method in options['imagingOptions']['correlationTypes']:
 		if len(method) == 2:
 			allSkySave = procDict[method]
@@ -70,18 +92,18 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 			allSkyImage = procDict.values()[0]
 			method = procDict.keys()[0]
 
-		if options['imagingOptions']['subtractBackground']:
+		if options['imagingOptions']['ftSubtractBackground']:
 			allSkyImage -= np.nanmin(allSkyImage) * 0.999999
 
 		procDict[method] = allSkySave
 
 		if options['plottingOptions']['plotImages']:
-			ftPlot(allSkyImage, options, labelOptions + [method, 0], stationLocation, lVec, mVec, dateArr)
+			ftPlot(allSkyImage, options, labelOptions + [method, 0], stationLocation, lVec, mVec, metaDataArr)
 
 	return procDict
 
 def processAllSkyIm(imagingFunc, inputCorrelations, posX, posY, frequency, lVec, mVec, stationRotation, mask, options):
-	"""Summary
+	"""Generate an all sky image and rotate/mask as needed
 	
 	Args:
 	    inputCorrelations (TYPE): Description
@@ -96,7 +118,7 @@ def processAllSkyIm(imagingFunc, inputCorrelations, posX, posY, frequency, lVec,
 	    labelOptions (TYPE): Description
 	
 	Returns:
-	    TYPE: Description
+	    np.ndarray: All Sky Image
 	"""
 	allSkyIm = imagingFunc(inputCorrelations, posX, posY, frequency, lVec, mVec, options)
 	allSkyIm = np.rot90(allSkyIm, 3)
@@ -110,18 +132,18 @@ def processAllSkyIm(imagingFunc, inputCorrelations, posX, posY, frequency, lVec,
 	return allSkyIm
 
 def dftImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, options):
-	"""Summary
+	"""DFT methodology for generating all sky image
 	
 	Args:
-	    correlationMatrix (TYPE): Description
-	    posX (TYPE): Description
-	    posY (TYPE): Description
-	    obsFreq (TYPE): Description
-	    lVec (TYPE): Description
-	    mVec (TYPE): Description
+	    correlationMatrix (np.ndarray): Input correlations (nAnts x nAnts x nSamples array of correlations)
+	    posX (np.array): Antenna location x components
+	    posY (np.array): Antenna location y components
+	    obsFreq (float): Frequency of observation (Hz)
+	    lVec (np.array): l-Values to sample (cosine of theta-x)
+	    mVec (np.array): l-Values to sample (cosine of theta-y)
 	
 	Returns:
-	    TYPE: Description
+	    np.ndarray: Output sky image/
 	"""
 	# corrMat: (96,96,nChan)
 	frameCount = correlationMatrix.shape[2]
@@ -157,10 +179,11 @@ def dftImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, options):
 	else:
 		skyView = ftWorkers.dftWorker(0, correlationMatrix, obsFreq, weight, conjWeight, skyView)[1]
 
+	# Swap x/y axis (why when we just do an ndflip later?)
 	return skyView.transpose((1,0,2))
 
 def fftImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, options):
-	"""Currently nonfunctional; will return later.
+	"""Currently nonfunctional; will return later if I can.
 	
 	Args:
 	    correlationMatrix (TYPE): Description
@@ -175,6 +198,8 @@ def fftImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, options):
 	Returns:
 	    TYPE: Description
 	"""
+
+	raise RuntimeError("Non-functional.")
 	kernel = options['imagingOptions']['method']
 
 	# corrMat: (96,96,nChan)

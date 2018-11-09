@@ -1,11 +1,17 @@
-"""Summary
+"""RFI Interative plot handlers.
+
+Originally coded by Joe McCauley, modified for the module.
 """
 import numpy as np
 
 from skyPlotter import informationArr
+
+# Store some variables on a global level to help deal with the fact that these events are isolated.
 global informationArr
 
-def update_annot( xdata, ydata, pixels, annot, rawdata, **kwargs):
+def updateAnnot( xdata, ydata, pixels, annot, rawdata, **kwargs):
+	"""Update the plotted annotation
+	"""
 	y, x = pol2cart( ydata/180, xdata, pixels )
 	annot.xy = ( xdata, ydata )
 	# Inconsistent wrapping; plot the right variable.
@@ -16,20 +22,23 @@ def update_annot( xdata, ydata, pixels, annot, rawdata, **kwargs):
 	annot.get_bbox_patch().set_alpha( 0.66 )
 	annot.set_color('black')
 
-def onclick(event, annot, pltObj, pixels, rawdata, **kwargs): # Callbacks only work on the last plot made
+def onclick(event, annot, pltObj, pixels, rawdata, **kwargs):
+	"""Handle the matplotlib click event
+	"""
 	vis = annot.get_visible()
 	if event.inaxes == pltObj:
 		if not vis:
-			update_annot(event.xdata, event.ydata, pixels, annot, rawdata)
+			updateAnnot(event.xdata, event.ydata, pixels, annot, rawdata)
 			annot.set_visible( True )
 			event.canvas.draw()
 		else:
 			annot.set_visible( False )
 			event.canvas.draw()
-			#fig.canvas.draw_idle()
 			
-def hover(event, pltObj, pixels, rawdata, axColorBar, cbCursor, **kwargs): # Callbacks only work on the last plot made
-	if event.xdata:# if you have 2 plots on screen, for some reason the hover event is triggered if you hover over the first one giving errors
+def hover(event, pltObj, pixels, rawdata, axColorBar, cbCursor, **kwargs):
+	"""Handle cursor movement (for the colorbar line)
+	"""
+	if event.xdata:
 	  	if event.inaxes == pltObj:
 			y,x = pol2cart( event.ydata / 180, event.xdata, pixels )
 			z=rawdata[ int( y ), int( x ) ]
@@ -42,7 +51,9 @@ def hover(event, pltObj, pixels, rawdata, axColorBar, cbCursor, **kwargs): # Cal
 			informationArr['cbCursor'] = cbCursor
 			#fig.canvas.draw_idle()
 
-def onaxesleave(event, pltObj, axColorBar, cbCursor, **kwargs): # Callbacks only work on the last plot made
+def onaxesleave(event, pltObj, axColorBar, cbCursor, **kwargs):
+	"""Handle cursor leaving the plot
+	"""
 	cleanCb(axColorBar)
 	cbCursor = axColorBar.plot([0, 1],[0, 0], 'k-')
 	event.canvas.draw()
@@ -55,12 +66,16 @@ def onaxesleave(event, pltObj, axColorBar, cbCursor, **kwargs): # Callbacks only
 	informationArr['cbCursor'] = cbCursor
 
 def cleanCb(axColorBar):
+	"""Remove previous lines from the color bar
+	"""
 	for line in axColorBar.axes.lines:
 		line.remove()
 
 	return axColorBar
 
 def pol2cart( rho, phi, pixels ):
+    """Convert from polar coordinates to cartesian
+    """
     x = rho * np.cos( phi )
     y = rho * np.sin( phi )
     x=( pixels/2 )-( pixels/2 )*x

@@ -1,19 +1,20 @@
-"""Summary
+"""Function that perform the processing maths behind the DFT/FFT methods
 """
 import numpy as np
 
 def dftWorker(idx, correlationMatrix, obsFreq, weight, conjWeight, skyView):
-	"""Summary
-	
-	Returns:
-	    TYPE: Description
+	"""DFT implementation for generating all sky images
 	
 	Args:
-	    idx (TYPE): Description
-	    correlationMatrix (TYPE): Description
-	    obsFreq (TYPE): Description
-	    conjWeight (TYPE): Description
-	    skyView (TYPE): Description
+		idx (int): Multiprocessing reference ID
+		correlationMatrix (np.ndarray): Array of antenna correlations
+		obsFreq (float): Observing frequency (for debug messages)
+		weight (np.ndarray): UVW plane weights
+		conjWeight (np.ndarray): UVW conj. weights
+		skyView (np.ndarray): Output array (for shape reference)
+
+	Returns:
+		idx, outputSkyImage: Multiprocessing ID, output results
 	"""
 	frameCount = correlationMatrix.shape[-1]
 	for frame in np.arange(frameCount):
@@ -29,17 +30,18 @@ def dftWorker(idx, correlationMatrix, obsFreq, weight, conjWeight, skyView):
 	return idx, skyView
 
 def fftWorker(idx, correlationMatrix, uvIdx, convolvedWeight, skyView):
-	"""Summary
+	"""FFT implementation for generating all sky images
 	
 	Args:
-	    idx (TYPE): Description
-	    correlationMatrix (TYPE): Description
-	    uv (TYPE): Description
-	    kernel (TYPE): Description
-	    skyView (TYPE): Description
+	    idx (int): Multiprocessing reference ID
+	    correlationMatrix (np.ndarray): Array of antenna correlations
+	    uvIdx (np.ndarray): UV plane indices
+	    convolvedWeight (np.ndarray): UVW plane weights with FFT modifications
+		skyView (np.ndarray): Output array (for shape reference)
 	
 	Returns:
-	    TYPE: Description
+		idx, outputSkyImage: Multiprocessing ID, output results
+
 	"""
 	print(uvIdx.shape, convolvedWeight.shape, correlationMatrix.shape)
 	for idx, uvTuple in enumerate(zip(uvIdx[0, 0, :], uvIdx[0, 1, :])):

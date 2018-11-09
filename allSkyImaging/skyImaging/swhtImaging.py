@@ -1,4 +1,4 @@
-"""Summary
+"""Generate full sky images with the SWHT methodology.
 """
 
 import astropy.coordinates
@@ -84,7 +84,7 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 	kRVec = k_0 * r
 
 	# Get the maximum l value from the options dictionary and prepare the result arrays
-	lMax = options['imagingOptions']['lMax']
+	lMax = options['imagingOptions']['swhtlMax']
 	arraySize = almMap.getsize(lMax - 1)
 	results = np.zeros(arraySize, dtype = complex)
 	maskVar = np.ones(healpy.nside2npix(64), dtype=np.bool)
@@ -109,10 +109,10 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 		galCoordSampled = np.deg2rad(np.vstack([galCoordLon, galCoordLat])[:, np.newaxis])
 		pixelCoord = np.deg2rad(np.vstack([pixelTheta, pixelPhi])[..., np.newaxis])
 		
-		# Check where the angular difference is less than 90 (ie., 45 degrees in any direction.)
+		# Check where the angular difference is less than 70 (ie., 35 degrees in any direction., save as used for all sky maps)
 		# Not sure about where the factor of 2 is coming from, but I can visually confirm that this works.
 		deltaLoc = greatCircleAngularDiff(galCoordSampled, pixelCoord)
-		maskVar = np.logical_not(np.any(np.rad2deg(deltaLoc) < 45, axis = 1))
+		maskVar = np.logical_not(np.any(np.rad2deg(deltaLoc) < 35, axis = 1))
 
 
 	procDict = {}
@@ -142,26 +142,27 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 					idx, resultsVar = asyncResult.get()
 					results[resultsVar != 0.] = resultsVar[resultsVar != 0.]
 
-				allSkyImage = results
+				allSkyImageAlm = results
 
 			else:
-				allSkyImage = swhtWorker.swhtWorker(0, lMax, lMax, kRVec, kZeroBool, inputDropped, phi, theta, preFac, results, uvw)[1]
+				allSkyImageAlm = swhtWorker.swhtWorker(0, lMax, lMax, kRVec, kZeroBool, inputDropped, phi, theta, preFac, results, uvw)[1]
 
 			# Convert the results to a healpy map
-			hpMap = healpy.alm2map(allSkyImage, 64).astype(complex)
+			procDict['{0}-alm'.format(key)] = allSkyImageAlm
+			hpMap = healpy.alm2map(allSkyImageAlm, 64).astype(complex)
 
 			# Clone + generate imaginary map as well (as healpy seems to hate imaginary values results)
 			# Not sure if this is the right way to go about doing things, but it seems to function at least.
 			# Can't find a Stokes-V map of the sky to compare.
-			clone = allSkyImage.copy()
+			clone = allSkyImageAlm.copy()
 			clone.real = clone.imag
-			clone.imag = np.zeros_like(allSkyImage)
+			clone.imag = np.zeros_like(allSkyImageAlm)
 			hpMap.imag = healpy.alm2map(clone, 64)
 
 			# Rotate to the right coordinate system
 			hpMap = galRotator.rotate_map(hpMap)
 
-			# Store the results
+			# Store the results]
 			print("{0} Polarisation Processed.".format(key))
 			procDict[key] = hpMap
 
@@ -197,11 +198,10 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 		allSkySave.mask = maskVar
 
 		# Don't save the result out of we are doing a pure-correlation map
-		if len(method) != 2:
-			procDict[method] = allSkySave
+		procDict[method] = allSkySave
 
 		if options['plottingOptions']['plotImages']:
-			swhtPlot(allSkyImage, options, labelOptions + [method, 0], healpy.newvisufunc.mollview, [timeArr, trueTelescopeLoc], zenithArr)
+			swhtPlot(allSkyImage, options, labelOptions + [method, 0], healpy.newvisufunc.mollview, [timeArr, trueTelescopeLoc], zenithArr, metaDataArr)
 
 	# Save a copy of the mask encase it gets mangled again.
 	procDict['mask'] = maskVar
@@ -217,7 +217,7 @@ def cartToSpherical(uvw):
 	    uvw (np.ndarray): u[0], v[1], w[2] elements.
 	
 	Returns:
-	    TYPE: Description
+	    list: rtp version of uvw
 	"""
 
 	# Assuming a constant frequency, r doesn't change between samples, it only gets rotated
@@ -226,13 +226,14 @@ def cartToSpherical(uvw):
 	r = np.sqrt(np.sum(np.square(uvw[0]), axis = (1)))
 	r = np.repeat(r[np.newaxis], uvw.shape[0], axis = 0)
 
-	theta = np.arccos(uvw[..., 2] / r)
+	theta = np.arccos(uvw[..., 2] / r) # Error appears due to autocorrelations at r = 0
 	phi = np.arctan2(uvw[..., 1], uvw[..., 0]) + np.pi # Scipy requires 0 -> 2pi for sph_harm
 
 	# Set the autocorrelations to sane defaults instead of inf/nan
 	zerothBaselines = np.where(r == 0.)
 	theta[zerothBaselines] = np.pi / 2.
 	phi[zerothBaselines] = np.pi
+
 	return r, theta, phi
 
 def greatCircleAngularDiff(angCoord1, angCoord2):

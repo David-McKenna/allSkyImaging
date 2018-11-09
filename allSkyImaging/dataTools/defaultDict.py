@@ -1,4 +1,4 @@
-"""Summary
+"""Options dictionary generator / helper.
 """
 import numpy as np
 
@@ -6,11 +6,11 @@ def default():
 	"""Generate the default dictionary.
 	"""
 	fileLocations = {
-		'antennaField': './{0}-AntennaField.conf',
-		'hbaDeltas': './{0}-iHBADeltas.conf',
-		'lbaRotation': './stationrotations.txt',
+		'antennaField': './config/{0}-AntennaField.conf',
+		'hbaDeltas': './config/{0}-iHBADeltas.conf',
+		'lbaRotation': './config/stationrotations.txt',
 		'outputH5Location': './{0}-mode{1}.h5',
-		'calibrationLocation': './{0}-mode{1}.dat', 
+		'calibrationLocation': './config/{0}-mode{1}.dat', 
 
 		'remoteURL': {
 			'antennaField': 'https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/',
@@ -30,9 +30,9 @@ def default():
 
 		'correlationTypes': ['I', 'YY'],
 
-		'subtractBackground': True,
+		'ftSubtractBackground': True,
 
-		'lMax': 32
+		'swhtlMax': 32
 
 	}
 
@@ -45,12 +45,13 @@ def default():
 
 		'figureShape': [18, 14],
 
+		'plotSkyObjects': True,
 		'interstellarSources': ['Polaris', 'Cas A', 'Cyg A', 'Sgr A', 'Tau A', 'Vir A', 'Cen A', 'Vela'],
 		'solarSystemSources': ['Sun', 'Jupiter', 'Moon', 'Uranus', 'Neptune'],
 
-		'colorBarLimits': 16, #n time steps, maxmin (defaults to 16, 2 seconds of video playback)
+		'colorBarMemory': 16, #n time steps, maxmin (defaults to 16, 2 seconds of video playback)
 		'maxPercentile': 99,
-		'minPercentile': 5,
+		'minPercentile': 33,
 
 		'logPlot': True,
 		'skyObjColor': 'black',
@@ -60,19 +61,19 @@ def default():
 		'radialLabelAngle': 0,
 		'fontSizeFactor': None,
 		'colorBar': True,
-		'graticule': True
+		'graticule': True,
+
+		'swhtZenithPointings': True,
 
 	}
 
 	defaultDictionary = {
-		'fullStructure': True,
 		'stationID': 'IE613',
 		'rcuMode': 3,
-		'activationPattern': 'Generic_Int_201512',
+		'activationPattern': 'Generic_Int_201512', #Effelsberg_elements_20091110, Generic_International_Station_20091110, Generic_Core_201512, Generic_Remote_201512
 		'h5GroupName': 'allSkyObservation',
 
-		'multiprocessing': False,
-		'multiprocessingCoreFrac': 0.66,
+		'multiprocessing': True,
 
 		'rfiMode': False,
 
@@ -86,14 +87,23 @@ def default():
 def patchDefault(newOptions):
 	"""Patch the default dictionary with the input values.
 
-	Input values should be in a dictionary in the format 'option': newValue, or for a sub-dictionary 'dictName:subOption': newValue.
+	Input values should be in a dictionary in the format 
+	
+		{'option': newValue}
+
+	or for a sub-dictionary 
+
+		{'dictName:subOption': newValue}
+
+	This function is autmatically called if you pass a dictionary to the head skyImager module.
 	
 	Args:
-	    newOptions (TYPE): Description
+	    newOptions (dict): Dictionary of new options in the syntax described above.
 	
 	Returns:
-	    TYPE: Description
+	    dict: A patched version of the default dictionary.
 	"""
+
 	defaultDictionary = default()
 	for option, newValue in newOptions.items():
 		if ':' in option:
@@ -105,15 +115,15 @@ def patchDefault(newOptions):
 	return defaultDictionary
 
 def updateLocation(currDict, stationID, rcuMode):
-	"""Summary
+	"""Update the stationary values to reflect the station being used.
 	
 	Args:
-	    currDict (TYPE): Description
-	    stationID (TYPE): Description
-	    rcuMode (TYPE): Description
+	    currDict (dict): Current default/patched by patchDefault dictionary
+	    stationID (string): Station ID
+	    rcuMode (int): RCU mode used for the observation.
 	
 	Returns:
-	    TYPE: Description
+	    dict: Patched version of the input dictionary.
 	"""
 	fileLocations = currDict['fileLocations']
 

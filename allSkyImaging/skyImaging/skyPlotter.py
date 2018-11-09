@@ -1,8 +1,4 @@
-"""Summary
-
-Attributes:
-	vmaxCache (TYPE): Description
-	vminCache (TYPE): Description
+"""Handle matplotlib-based plotting of our sky images.
 """
 import numpy as np
 import astropy.units as u
@@ -12,7 +8,8 @@ import collections
 import subprocess
 import os
 import healpy.newvisufunc
-import ast
+
+import shutil
 
 from dataTools.usefulFunctions import cache
 from dataTools.usefulFunctions import lonToHealpyLon
@@ -27,12 +24,22 @@ informationArr = {}
 # Set some sane default lengths for the vmax/min queues so the global variables are initialised
 vmaxCache = collections.deque([], 20)
 vminCache = collections.deque([], 20)
+
 def ftPlot(allSkyIm, options, labelOptions, stationLocation, lVec, mVec, dateArr):
 	"""Summary
+	
+	Args:
+	    allSkyIm (TYPE): Description
+	    options (TYPE): Description
+	    labelOptions (TYPE): Description
+	    stationLocation (TYPE): Description
+	    lVec (TYPE): Description
+	    mVec (TYPE): Description
+	    dateArr (TYPE): Description
 	"""
 
 	#Ensure we are on the right backend
-	if options['rfiMode'] or options['plottingOptions']['displayFigure']:
+	if options['rfiMode'] or options['plottingOptions']['displayImages']:
 		plt.switch_backend('TkAgg')
 	else:
 		plt.switch_backend('Agg')
@@ -40,19 +47,18 @@ def ftPlot(allSkyIm, options, labelOptions, stationLocation, lVec, mVec, dateArr
 	global vmaxCache
 	global vminCache
 
-	print(options['plottingOptions']['colorBarLimits'].lower())
-	if isinstance(options['plottingOptions']['colorBarLimits'], int):
-		vmaxCache = collections.deque([], options['plottingOptions']['colorBarLimits'])
-		vminCache = collections.deque([], options['plottingOptions']['colorBarLimits'])
+	if isinstance(options['plottingOptions']['colorBarMemory'], int):
+		vmaxCache = collections.deque([], options['plottingOptions']['colorBarMemory'])
+		vminCache = collections.deque([], options['plottingOptions']['colorBarMemory'])
 
-		print('Colour bars will be averaged over {0} time steps ({1}s of video output if generated)'.format(options['plottingOptions']['colorBarLimits'], options['plottingOptions']['colorBarLimits'] / float(options['plottingOptions']['videoFramerate'])))
+		print('Colour bars will be averaged over {0} time steps ({1}s of video output if generated)'.format(options['plottingOptions']['colorBarMemory'], options['plottingOptions']['colorBarMemory'] / float(options['plottingOptions']['videoFramerate'])))
 	else:
-		if 'max' in options['plottingOptions']['colorBarLimits'].lower():
+		if 'max' in options['plottingOptions']['colorBarMemory'].lower():
 			vmaxCache = np.nanmax(allSkyIm)
 			vminCache = np.nanmin(allSkyIm)
 
 			print('Set the overall imaging limits (by max/min) to be between {0} and {1}'.format(vmaxCache, vminCache))
-		elif 'percent' in options['plottingOptions']['colorBarLimits'].lower():
+		elif 'percent' in options['plottingOptions']['colorBarMemory'].lower():
 			vmaxCache = float(np.nanpercentile(allSkyIm, options['plottingOptions']['maxPercentile']))
 			vminCache = float(np.nanpercentile(allSkyIm, options['plottingOptions']['minPercentile']))
 
@@ -67,16 +73,29 @@ def ftPlot(allSkyIm, options, labelOptions, stationLocation, lVec, mVec, dateArr
 		figNum += 1
 		fileLoc.append(ftAllSkyImage(allSkyIm[..., i], options, labelOptions, stationLocation, lVec, mVec))
 
-	if options['plottingOptions']['generateVideo'] and allSkyIm.shape[-1] > 20:
+	if options['plottingOptions']['generateVideo'] and allSkyIm.shape[-1] > 10:
 		dateTime, rcuMode, __, frequency, polarity, figNum = labelOptions
 		filePrefix = dateTime[:2] # Century of observation as a prefix
 		fileSuffix = "mode{0}{1}_{2}_{3}MHz.png".format(rcuMode, polarity, options['imagingOptions']['method'].replace('/', '-'), int(frequency/1e6))
 
 		print("Exporting frames to video at " + "./{0}{1}.mpg".format(dateTime, fileSuffix))
-		subprocess.call(['ffmpeg', '-y',  '-framerate',  str(options['plottingOptions']['videoFramerate']), '-pattern_type', 'glob',  '-i',  '{0}*{1}.png'.format(filePrefix, fileSuffix), '-r', str(max(options['plottingOptions']['videoFramerate'], 30)), "{0}{1}.mp4".format(dateTime, fileSuffix)])
+		subprocess.call(['ffmpeg', '-y',  '-framerate',  str(options['plottingOptions']['videoFramerate']), '-pattern_type', 'glob',  '-i',  '{0}*{1}'.format(filePrefix, fileSuffix), '-r', str(max(options['plottingOptions']['videoFramerate'], 30)), "{0}{1}.mp4".format(dateTime, fileSuffix)])
 
 
 def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVec):
+	"""Summary
+	
+	Args:
+	    allSkyImage (TYPE): Description
+	    options (TYPE): Description
+	    labelOptions (TYPE): Description
+	    stationLocation (TYPE): Description
+	    lVec (TYPE): Description
+	    mVec (TYPE): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	plotOptions = options['plottingOptions']
 
 	logPlot, skyObjColor, gridThickness, backgroundColor, foregroundColor, radialLabelAngle, colorBar, obsSite, outputFolder, maxPercentile, minPercentile, figureShape, fontSizeFactor = plotOptions['logPlot'], plotOptions['skyObjColor'], plotOptions['gridThickness'], plotOptions['backgroundColor'], plotOptions['foregroundColor'], plotOptions['radialLabelAngle'], plotOptions['colorBar'], options['stationID'], plotOptions['outputFolder'], plotOptions['maxPercentile'], plotOptions['minPercentile'], plotOptions['figureShape'], plotOptions['fontSizeFactor']
@@ -94,7 +113,8 @@ def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVe
 
 	obsTime = astropy.time.Time(dateTime)
 
-	knownSources, referenceObject = getSkyObjects(options, obsTime, telescopeLoc)
+	if plotOptions['plotSkyObjects']:
+		knownSources, referenceObject = getSkyObjects(options, obsTime, telescopeLoc)
 
 	altAzRef = astropy.coordinates.AltAz(obstime = obsTime, location = telescopeLoc)
 	altAzObjects = [skyObj.transform_to(altAzRef) for skyObj in referenceObject]
@@ -104,7 +124,7 @@ def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVe
 
 	fig = plt.figure(figNum, figsize = (figureShape[0], figureShape[1]))
 	fig.patch.set_facecolor(backgroundColor)
-	plt.suptitle( 'LOFAR mode {0}{1} all sky plot at {2}MHz (sb{3}) for {4}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite), fontsize = int(28 * fontSizeFactor), color=foregroundColor )#, va = 'top') 
+	plt.suptitle('LOFAR mode {0}{1} all sky plot at {2}MHz (sb{3}) for {4}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite), fontsize = int(28 * fontSizeFactor), color=foregroundColor)#, va = 'top') 
 	plt.rcParams["text.color"] = foregroundColor
 	plt.rcParams["axes.labelcolor"] = foregroundColor
 	plt.rcParams["xtick.color"] =  foregroundColor
@@ -170,45 +190,41 @@ def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVe
 	pltObj.set_theta_zero_location("N")
 	pltObj.set_theta_direction(1)
 
-	plotStatus = [[True, __plotSkyObject(axImage, skyObj, lVec.size, skyObjColor, knownSources[idx], fontSizeFactor = fontSizeFactor)] if (skyObj.alt.deg > 20.) or (options['rfiMode'] and skyObj.alt.deg > -10.) else [False, __plotSkyObject(axImage, skyObj, lVec.size, skyObjColor, knownSources[idx], offset = True, fontSizeFactor = fontSizeFactor)]  for idx, skyObj in enumerate(altAzObjects)]
-	
-	plt.rcParams["text.color"] = foregroundColor
-	legend = axImage.legend( loc = 8, bbox_to_anchor = ( 0.5, -0.128 ), ncol = 4, framealpha = 0.0, fontsize = int(14 * fontSizeFactor), title = str(obsTime)[:-4])
-	legend.get_title().set_fontsize(str(int(22 * fontSizeFactor)))
+	if plotOptions['plotSkyObjects']:
+		plotStatus = [[True, __plotSkyObject(axImage, skyObj, lVec.size, skyObjColor, knownSources[idx], fontSizeFactor = fontSizeFactor)] if (skyObj.alt.deg > 20.) or (options['rfiMode'] and skyObj.alt.deg > -10.) else [False, __plotSkyObject(axImage, skyObj, lVec.size, skyObjColor, knownSources[idx], offset = True, fontSizeFactor = fontSizeFactor)]  for idx, skyObj in enumerate(altAzObjects)]
 
-	for idx, skyText in enumerate(legend.get_texts()):
-		if not plotStatus[idx][0]:
-			plt.setp(skyText, color = 'red')
-		elif options['rfiMode'] and altAzObjects[idx].alt.deg > -10. and altAzObjects[idx].alt.deg < 20.:
-			plt.setp(skyText, color = 'orange')
+		legend = axImage.legend( loc = 8, bbox_to_anchor = ( 0.5, -0.128 ), ncol = 4, framealpha = 0.0, fontsize = int(14 * fontSizeFactor), title = str(obsTime)[:-4])
+		legend.get_title().set_fontsize(str(int(22 * fontSizeFactor)))
+
+		for idx, skyText in enumerate(legend.get_texts()):
+			if not plotStatus[idx][0]:
+				plt.setp(skyText, color = 'red')
+			elif options['rfiMode'] and altAzObjects[idx].alt.deg > -10. and altAzObjects[idx].alt.deg < 20.:
+				plt.setp(skyText, color = 'orange')
 
 	radii = []
 
-	for radius in range(0, 90, 15): # r grid at 15 degree intervals
-		radii.append(180 * np.cos(radius * np.pi/180)) # plot the radii so as to display as an orthographic grid
-		pltObj.set_rgrids(radii)
-	if radialLabelAngle: # you would not want to put y ticks on 0 anyhow as it would be messy
-		yLabel = [ '', '15' + u'\xb0', '30' + u'\xb0', '45' + u'\xb0', '60' + u'\xb0', '75' + u'\xb0' ]
-		pltObj.set_yticklabels(yLabel, color = skyObjColor)
-		pltObj.set_rlabel_position(radialLabelAngle)
-	else:
-		yLabel = []
-		pltObj.set_yticklabels(yLabel)
-
-	thetaticks = np.arange(0, 360, 45)
-	pltObj.set_thetagrids(thetaticks, weight = 'bold', color = skyObjColor, fontsize = int(18 * fontSizeFactor))
-	pltObj.tick_params('x', pad = -35, rotation = 'auto')
-
-	pltObj.grid(False, 'both', color = skyObjColor, linewidth = gridThickness)
+	if plotOptions['graticule']:
+		for radius in range(0, 90, 15): # r grid at 15 degree intervals
+			radii.append(180 * np.cos(radius * np.pi/180)) # plot the radii so as to display as an orthographic grid
+			pltObj.set_rgrids(radii)
+		if radialLabelAngle: # you would not want to put y ticks on 0 anyhow as it would be messy
+			yLabel = [ '', '15' + u'\xb0', '30' + u'\xb0', '45' + u'\xb0', '60' + u'\xb0', '75' + u'\xb0' ]
+			pltObj.set_yticklabels(yLabel, color = skyObjColor)
+			pltObj.set_rlabel_position(radialLabelAngle)
+		else:
+			yLabel = []
+			pltObj.set_yticklabels(yLabel)
+	
+		thetaticks = np.arange(0, 360, 45)
+		pltObj.set_thetagrids(thetaticks, weight = 'bold', color = skyObjColor, fontsize = int(18 * fontSizeFactor))
+		pltObj.tick_params('x', pad = -35, rotation = 'auto')
+	
+		pltObj.grid(False, 'both', color = skyObjColor, linewidth = gridThickness)
+	
 	pltObj.patch.set(alpha = 0.0)
 	plt.sca(axImage)
 
-	if not os.path.exists(outputFolder):
-		os.makedirs(outputFolder)
-
-	plotFilename = "{7}{0}_{1}_sb{2}_mode{3}{4}_{5}_{6}MHz.png".format(dateTime, obsSite, subband, rcuMode, polarity, options['imagingOptions']['method'].replace('/', '-'), int(frequency/1e6), outputFolder)
-	plotFilename = plotFilename.replace(' ', '_').replace(':', '')
-	print("Saving output to {0}".format(plotFilename))
 	
 	if options['rfiMode']:
 		from rfiPlotter import onclick, hover, onaxesleave
@@ -228,6 +244,19 @@ def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVe
 		plt.ioff()
 		plt.show()
 		plt.pause(1)
+	elif plotOptions['displayImages']:
+		plt.ioff()
+		plt.show()
+		plt.pause(1)
+
+
+	if not os.path.exists(outputFolder):
+		os.makedirs(outputFolder)
+
+	plotFilename = "{7}{0}_{1}_sb{2}_mode{3}{4}_{5}_{6}MHz.png".format(dateTime, obsSite, subband, rcuMode, polarity, options['imagingOptions']['method'].replace('/', '-'), int(frequency/1e6), outputFolder)
+	plotFilename = plotFilename.replace(' ', '_').replace(':', '')
+	
+	print("Saving output to {0}".format(plotFilename))
 
 	fig.savefig(plotFilename, facecolor=fig.get_facecolor(), edgecolor='none')
 
@@ -236,6 +265,17 @@ def ftAllSkyImage(allSkyImage, options, labelOptions, stationLocation, lVec, mVe
 
 
 def __plotSkyObject(axIm, skyObj, pixels, skyObjColor, sourceName, offset = False, fontSizeFactor = 1.):
+	"""Summary
+	
+	Args:
+	    axIm (TYPE): Description
+	    skyObj (TYPE): Description
+	    pixels (TYPE): Description
+	    skyObjColor (TYPE): Description
+	    sourceName (TYPE): Description
+	    offset (bool, optional): Description
+	    fontSizeFactor (float, optional): Description
+	"""
 	if not offset:
 		if not skyObj.alt.deg > 20.:
 			altRad = 0.
@@ -252,56 +292,103 @@ def __plotSkyObject(axIm, skyObj, pixels, skyObjColor, sourceName, offset = Fals
 		y = 0.
 
 	skyPlt = axIm.scatter(x, y, color = skyObjColor, marker = 'D', s = int(50 * fontSizeFactor), label = u"{0} - Az={1}\xb0, El={2}\xb0".format(sourceName, round(skyObj.az.deg, 1), round(skyObj.alt.deg, 1)), alpha = 1)
+	
 	if not offset:
 			textObj = axIm.annotate(sourceName, xy = (x,y), xytext = (x+2,y+2), color = skyObjColor, fontsize = int(18 * fontSizeFactor))
 			textObj.set_path_effects([mplPe.withStroke(linewidth = 5, foreground = 'w')])
 
 
 
-def swhtPlot(hpMap, options, labelOptions, plottingFunc = healpy.newvisufunc.mollview, legendPlot = None, zenithArr = None):
-	if options['plottingOptions']['displayFigure']:
+def swhtPlot(hpMap, options, labelOptions, plottingFunc = healpy.newvisufunc.mollview, legendPlot = None, zenithArr = None, metaDataArr = None):
+	"""Summary
+	
+	Args:
+	    hpMap (TYPE): Description
+	    options (TYPE): Description
+	    labelOptions (TYPE): Description
+	    plottingFunc (TYPE, optional): Description
+	    legendPlot (None, optional): Description
+	    zenithArr (None, optional): Description
+	    metaDataArr (None, optional): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
+	if options['plottingOptions']['displayImages']:
 		plt.switch_backend('TkAgg')
 	else:
 		plt.switch_backend('Agg')
 
+	fileLoc = []
+	figNum = np.random.randint(0, 65000) # If multiprocessed we don't want our figure IDs to overlap.
+	print('Begining Plotting: The first frame will take longer than expected as we need to lookup the sky objects.')
+	labelOptions[0] = [metaDataArr[0].split("'integrationMidpoint': '")[1].split("', ")[0], metaDataArr[-1].split("'integrationMidpoint': '")[1].split("', ")[0]]
+	labelOptions[-1] = figNum
+	figNum += 1
 	hpMap = hpMap.filled(np.nan)
 
-	swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot, zenithArr)
 
-	plotFileName = None
+	fileName1 = swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot, zenithArr)
+	fileName2 = swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot = None, zenithArr = None)
 
-	return plotFileName
+	namePattern = '-'.join(fileName2.split('-')[:-1])
+
+	endStr = ''
+	if options['plottingOptions']['logPlot']:
+		endStr = '-log2'
+
+	shutil.copyfile(fileName1, fileName1[:-4] + '-GIF' + '.png')
+	shutil.copyfile(fileName2, fileName2[:-4] + '-GIF' + '.png')
+
+	subprocess.call(['ffmpeg', '-y', '-framerate', '1/' + str(options['plottingOptions']['videoFramerate']), '-pattern_type', 'glob', '-i', '{0}*-GIF.png'.format(namePattern),  '-r', '15', options['plottingOptions']['outputFolder'] + 'swht-animation-{0}-rcu{1}{3}-{2:.1f}Mhz.gif'.format(labelOptions[0][0].split(' ')[0], str(labelOptions[1]) + labelOptions[4], labelOptions[3] / 1e6, endStr)])
+	
+	os.remove(fileName1[:-4] + '-GIF' + '.png')
+	os.remove(fileName2[:-4] + '-GIF' + '.png')
 
 
 def swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot = None, zenithArr = None):
+	"""Summary
+	
+	Args:
+	    hpMap (TYPE): Description
+	    options (TYPE): Description
+	    labelOptions (TYPE): Description
+	    plottingFunc (TYPE): Description
+	    legendPlot (None, optional): Description
+	    zenithArr (None, optional): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
+	origHpMap = hpMap.copy()
 	plotOptions = options['plottingOptions']
+
+	fileNameSuffix = ''
 	
 	logPlot, skyObjColor, backgroundColor, foregroundColor, colorBar, obsSite, outputFolder, maxPercentile, minPercentile, figureShape, fontSizeFactor, gridThickness = plotOptions['logPlot'], plotOptions['skyObjColor'], plotOptions['backgroundColor'], plotOptions['foregroundColor'], plotOptions['colorBar'], options['stationID'], plotOptions['outputFolder'], plotOptions['maxPercentile'], plotOptions['minPercentile'], plotOptions['figureShape'], plotOptions['fontSizeFactor'], plotOptions['gridThickness']
 	dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 
 	if fontSizeFactor is None:
 		fontSizeFactor = figureShape[0] / 18.
-	dateTime = ['', '']
+
 	if logPlot:
+		fileNameSuffix += '-log2'
+		# Cleanup log plots
 		hpMapNeg = hpMap < 0.
 		hpMap[hpMapNeg] = 1.
-
-		#median = np.nanpercentile(hpMap, 80)
-
-		#hpMap -= median
 
 		hpMap = np.log2(hpMap)
 
 		minV = np.nanpercentile(hpMap[hpMap > 10.], minPercentile)
 		maxV = np.nanpercentile(hpMap[hpMap > 10.], maxPercentile)
+	else:
+		minV = np.nanpercentile(hpMap, minPercentile)
+		maxV = np.nanpercentile(hpMap, maxPercentile)
 
 	cmapVar = plt.get_cmap('jet')
 	cmapVar.set_under(backgroundColor)
 	cmapVar.set_bad(backgroundColor)
 
-	#figRatio = [int(figureShape[0] * 0.8), int(figureShape[1] *0.2)]
-	#gs = mpl.gridspec.GridSpec(2, 1, height_ratios = figRatio)
-	#gs = mpl.gridspec.GridSpec(1, 1)
 
 	plt.rcParams["text.color"] = foregroundColor
 	plt.rcParams["axes.labelcolor"] = foregroundColor
@@ -309,24 +396,22 @@ def swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot = No
 	plt.rcParams["ytick.color"] = foregroundColor
 	plt.rcParams['axes.edgecolor'] = foregroundColor
 
-	#axImage = figObj.add_subplot(gs[0], label = 'ax_image')
-	#axImage.axis('off')
-
-	#plt.sca(axImage) # Needed to force healpy to plot onto our figure
 	graticuleBool = plotOptions['graticule']
-	titleStr = 'LOFAR mode {0}{1} Full Sky Plot at {2}MHz (sb{3}) for {4} between {5} and {6}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite, dateTime[0], dateTime[1])
-	pltArr = plottingFunc(hpMap, cmap = cmapVar, cbar = colorBar, min = minV, max = maxV, graticule = graticuleBool, shading = 'gouraud')
+	titleStr = 'LOFAR mode {0}{1} Full Sky Plot at {2}MHz (sb{3}) for {4}\nbetween {5} and {6}\n'.format(rcuMode, polarity, round(frequency / 1e6, 2), subband, obsSite, dateTime[0][:21], dateTime[1][:21])
+	useGraticules = graticuleBool and ((legendPlot is not None) or (zenithArr is not None))
+	pltArr = plottingFunc(hpMap, cmap = cmapVar, cbar = colorBar, min = minV, max = maxV, graticule = useGraticules, graticule_labels = useGraticules, shading = 'gouraud')
 	
-	if graticuleBool:
+	if useGraticules:
+		fileNameSuffix += '-graticules'
 		plt.gca().set_longitude_grid(30.)
 		plt.gca().set_latitude_grid(30.)
+	else:
+		plt.subplots_adjust(left=0.04, right=0.98, top=0.95, bottom=0.05)
 
-		plt.gca().xaxis.set_tick_params(label1On=False)
-		plt.gca().yaxis.set_tick_params(label1On=False)
 	plt.title(titleStr)
 
 	figObj = plt.gcf()
-	figObj.set_size_inches(figureShape[0], figureShape[1])
+	figObj.set_size_inches(figureShape[0], figureShape[1]) # Setting the size before a healpy plot results in the figure size icnreasing, but a constant content size.
 	plt.subplots_adjust(top = 1., hspace = 0.)
 	figObj.patch.set_facecolor(backgroundColor)
 	plt.gca().set_facecolor(backgroundColor)
@@ -334,46 +419,62 @@ def swhtFullSkyImage(hpMap, options, labelOptions, plottingFunc, legendPlot = No
 	# If we are plotting zeniths, add a buffer to plot status to account for it.
 	plotStatus = []
 
-	if legendPlot:
-		if zenithArr:
-			galCoordLon = lonToContinuousGalacticLon(np.array([skyCoord.l.rad for skyCoord in zenithArr]), True)
-			galCoordLat = np.array([skyCoord.b.rad for skyCoord in zenithArr])
-			lineVar = plt.plot(galCoordLon, galCoordLat, linestyle = '-', color = 'w', label = None)
-			lineVar = plt.scatter(galCoordLon, galCoordLat, marker = 'D', c = 'w', edgecolors = 'lime', label = 'Zenith Pointings')
+	if zenithArr and plotOptions['swhtZenithPointings']:
+		fileNameSuffix = '-zenithpointings' + fileNameSuffix
+		galCoordLon = lonToContinuousGalacticLon(np.array([skyCoord.l.rad for skyCoord in zenithArr]), True)
+		galCoordLat = np.array([skyCoord.b.rad for skyCoord in zenithArr])
+		lineVar = plt.plot(galCoordLon, galCoordLat, linestyle = '-', color = 'w', label = None, alpha = 0.4)
+		lineVar = plt.scatter(galCoordLon, galCoordLat, marker = 'D', c = 'w', edgecolors = 'lime', label = 'Zenith Pointings', alpha = 0.4)
 
-			plotStatus = plotStatus + [[False, True]]
+		plotStatus = plotStatus + [False]
+
+	if legendPlot and plotOptions['plotSkyObjects']:
+		fileNameSuffix = '-skyobjects' + fileNameSuffix
 		obsTime, telescopeLoc = legendPlot
+
+		print('Getting sky objects; if not cached this will take a while.')
 		knownSources, referenceObject = getSkyObjects(options, obsTime, telescopeLoc)
-		# Add an extra true if we have a zenithArr passed.
-		print(referenceObject)
-		print(referenceObject[0])
-		plotStatus = plotStatus + [__plotFullSkyObject(hpMap, skyObj, skyObjColor, knownSources[idx], fontSizeFactor = fontSizeFactor) for idx, skyObj in enumerate(referenceObject)]
+		plotStatus = plotStatus + [statusNameVal for idx, skyObj in enumerate(referenceObject) for statusNameVal in __plotFullSkyObject(origHpMap, skyObj, skyObjColor, knownSources[idx], fontSizeFactor = fontSizeFactor)]
 
 		legend = plt.gca().legend(loc = 8, bbox_to_anchor = ( 0.5, -0.4 ), ncol = 4, title = 'l = [-180, 180], b = [-90, 90]', framealpha = 0.0, fontsize = int(17 * fontSizeFactor))
 		
-		flatten = lambda listofLists: [subList for subListArr in listofLists for subList in subListArr]
-		plotStatus = flatten(plotStatus)
 		for idx, skyText in enumerate(legend.get_texts()):
 			if plotStatus[idx]:
 				plt.setp(skyText, color = 'red')
 	
+	if not os.path.exists(outputFolder):
+		os.makedirs(outputFolder)
 
-	figObj.savefig('./swht_debug.png', facecolor=figObj.get_facecolor(), edgecolor='none')
-	if plotOptions['displayFigure']:
+	fileName = '{0}swht-rcuMode{1}-sb{2}{3}.png'.format(outputFolder, str(rcuMode) + polarity, subband, fileNameSuffix)
+	print(fileName)
+	figObj.savefig(fileName, facecolor=figObj.get_facecolor(), edgecolor='none')
+	
+	if plotOptions['displayImages']:
 		plt.show()
-	plotFileName = None, outputFolder
 
-	return plotFileName
+	hpMap = origHpMap.copy()
+	
+	return fileName
 
 def __plotFullSkyObject(hpMap, skyObj, skyObjColor, sourceName, fontSizeFactor = 1., offset = False):
+	"""Summary
+	
+	Args:
+	    hpMap (TYPE): Description
+	    skyObj (TYPE): Description
+	    skyObjColor (TYPE): Description
+	    sourceName (TYPE): Description
+	    fontSizeFactor (float, optional): Description
+	    offset (bool, optional): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	alpha = 0.
-	hpMap[hpMap < 1.] = np.nan
 	if isinstance(skyObj, list):
-		print(skyObj[0])
 		lDegOrig = [skyObjEle.l.deg for skyObjEle in skyObj]
 		lDeg = lonToHealpyLon(lDegOrig, False)
 		bDeg = [skyObjEle.b.deg for skyObjEle in skyObj]
-		print(lDeg, bDeg)
 		if np.any(~np.isnan(hpMap[healpy.ang2pix(64, lDeg, bDeg, lonlat = True)])) and not offset:
 			alpha = 1.
 		else:
@@ -397,7 +498,7 @@ def __plotFullSkyObject(hpMap, skyObj, skyObjColor, sourceName, fontSizeFactor =
 		lDeg = lonToContinuousGalacticLon(lDegOrig, False)
 
 		lRad, bRad = lonToContinuousGalacticLon(skyObj.l.rad, True), skyObj.b.rad
-		skyPlt = plt.scatter(lRad, bRad, marker = 'D', s = int(50 * fontSizeFactor), c = skyObjColor, label = u"{0} - l={1}\xb0, b={2}\xb0".format(sourceName, round(lDeg, 1), round(bDeg, 1)), alpha = alpha)
+		skyPlt = plt.scatter(lRad, bRad, marker = 'D', s = int(50 * fontSizeFactor), c = 'w', edgecolors = skyObjColor, label = u"{0} - l={1}\xb0, b={2}\xb0".format(sourceName, round(lDeg, 1), round(bDeg, 1)), alpha = alpha)
 
 	if not offset:
 		textObj = plt.gca().annotate(sourceName, xy = (np.mean(lRad),np.mean(bRad)), xytext = (np.mean(lRad),np.mean(bRad)), color = skyObjColor, fontsize = int(18 * fontSizeFactor))
@@ -408,16 +509,24 @@ def __plotFullSkyObject(hpMap, skyObj, skyObjColor, sourceName, fontSizeFactor =
 
 	return [offset]
 
-def mapSWHTlValues(lVal, deg = False):
-	if deg:
-		a = 'a'
-	return a
 
 def getSkyObjects(options, obsTime, telescopeLoc):
+	"""Summary
+	
+	Args:
+	    options (TYPE): Description
+	    obsTime (TYPE): Description
+	    telescopeLoc (TYPE): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	try:
 		swhtBool = 'swht' in options['imagingOptions']['method']
 		# Far celestial sources can be cached, bodies in the Solar System cannot.
-		knownSources = options['plottingOptions']['interstellarSources']
+		# Extend an empty lists a subdicts are annoying to handle.
+		knownSources = []
+		knownSources.extend(options['plottingOptions']['interstellarSources'])
 		referenceObject = []
 		referenceObject = [cachedSkyCoords(name, swhtBool) for name in knownSources]
 	
@@ -435,6 +544,17 @@ def getSkyObjects(options, obsTime, telescopeLoc):
 	return knownSources, referenceObject
 
 def astropyBodyHandler(sourceName, obsTime, telescopeLoc, swhtBool):
+	"""Summary
+	
+	Args:
+	    sourceName (TYPE): Description
+	    obsTime (TYPE): Description
+	    telescopeLoc (TYPE): Description
+	    swhtBool (TYPE): Description
+	
+	Returns:
+	    TYPE: Description
+	"""
 	if not swhtBool:
 		return astropy.coordinates.get_body(sourceName, obsTime, telescopeLoc)
 	
@@ -446,10 +566,11 @@ def cachedSkyCoords(name, swhtBool = False):
 	"""Summary
 	
 	Args:
-		name (TYPE): Description
+	    name (TYPE): Description
+	    swhtBool (bool, optional): Description
 	
 	Returns:
-		TYPE: Description
+	    TYPE: Description
 	"""
 	if not swhtBool:
 		return astropy.coordinates.SkyCoord.from_name(name)

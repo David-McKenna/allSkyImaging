@@ -1,4 +1,4 @@
-"""Summary
+"""Module head function: call the functions here to run anything you need the moudle to do.
 """
 import h5py
 import numpy as np
@@ -20,19 +20,30 @@ reload(defaultDict)
 reload(imagingHead)
 
 def image(fileLocation, obsType = 'XST', options = None):
-	"""Summary
+	"""Image a given file/folder. Options can be given a patch dictionary.
+
+	Patch dictionaries are dictionaries where you want to keep most of the default values, with some modifications. 
+	See defaultDict.py for details. For a simple rundown: change options by referencing them, or subdictioanry values
+		by using the 'subdict:option' syntax as the dictionary key.
+	Eg:
+	{
+		'rcuMode': 5,
+		'imagingOptions:method': 'swht'
+	}
 	
 	Args:
-		fileLocation (TYPE): Description
-		obsType (str, optional): Description
-		options (dict, optional): Description
+		fileLocation (str): File/Folder location
+		obsType (str, optional): Observation Type
+		options (dict, optional): Stadard options dictionary or patch value dictionary
 	
 	Returns:
-		TYPE: Description
+		str, str: Output file name, output h5 group name
 	
 	Raises:
-		RuntimeError: Description
+		RuntimeError: Passed an unknwon type of observation.
 	"""
+
+	# Get station information
 	options, rcuMode, __, rotation, activationPattern, calibrationLocation, stationPackage = basicInitialisation(options)
 	posXPol, stationLocation, __, antLocs = stationPackage
 
@@ -41,20 +52,11 @@ def image(fileLocation, obsType = 'XST', options = None):
 	posZ = posXPol[:, 2, np.newaxis]
 	antPos = np.dstack([posX, posY, posZ])
 
+	# Process the input correlations
 	if obsType.lower() == 'xst':
 		outputFile, groupPrefix = xstImporter.importXST(fileLocation, outputFile = options['fileLocations']['outputH5Location'], groupNamePrefix = options['h5GroupName'], rcuMode = rcuMode, calibrationFile = calibrationLocation, activationPattern = activationPattern)
 	elif obsType.lower() == 'acc':
-		'''
-		# In the case we have been provided a folder of ACC files, run recursively to process them. 
-		if os.path.isdir(fileName):
-			fileList, __, __ = processInputLocation(fileName, 'acc')
-			for fileName in fileList:
-				main(fileName, 'ACC', breakThings, rcuMode, subbandArr, deltasLoc, fieldLoc, plotOptions, activation, calLoc, outputH5Loc, baselineLimits)
-
-			return
-
-		outputFile, groupPrefix, rcuMode = importXST.importACC(fileLocation, rcuMode, calibrationFile = calLoc, outputFile = outputH5Loc)
-		'''
+		raise RuntimeError('Reimplementation needed')
 	else:
 		raise RuntimeError('Unknown observation file type.')
 
@@ -62,6 +64,7 @@ def image(fileLocation, obsType = 'XST', options = None):
 		options['plottingOptions']['outputFolder']= '/'.join(fileLocation.split('/')[:-1]) + '/allSkyOutput/'
 
 
+	# Read data from the processed correlations from the h5 file and start imaging.
 	with h5py.File(outputFile, 'r+') as corrRef:
 		if obsType != 'acc':
 			subbandArr = [subbandInt[0][2:] for subbandInt in corrRef[groupPrefix].items() if 'sb' in subbandInt[0]]
@@ -72,18 +75,19 @@ def image(fileLocation, obsType = 'XST', options = None):
 			# 	#2: If we have more than 127 frames to image (to prevent OutOfMemory conditions) # Removed for now
 			splitThreshold = (len(subbandArr) > 5) #  or (totalFrames > 127)
 		else:
-			'''
-			subbandArr = np.arange(512)
-			'''
+			raise RuntimeError('Reimplementation needed')
 
-		if 'calibrationArray' in corrRef[groupPrefix]:
+
+		# If we had a correlation array and want to use it, apply it.
+		if ('calibrationArray' in corrRef[groupPrefix]) and options['imagingOptions']['calibrateData']:
 			print('Extracting Calibrations')
 			corrGroup = corrRef[groupPrefix]['calibrationArray']
 			calibrationArr = corrGroup[...]
 		else:
 			calibrationArr = None
 
-
+		# If we have more than 5 subbands in the given processing folder, we probably are dealing with a subband scan. It'll be faster to parallelise
+		#	on a subband level than per-observation level as a result.
 		if options['multiprocessing'] and splitThreshold:
 			options['multiprocessing'] = False
 
@@ -108,34 +112,41 @@ def image(fileLocation, obsType = 'XST', options = None):
 		else:
 			__, allSkyDatasetNames, allSkyDataArr = processData(1, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, subbandArr)
 
+		method = options['imagingOptions']['method']
+		updatedDatasetNames = []
+		# Store the output data in the same h5 file.
 		for allSkyDatasetName, allSkyData in zip(allSkyDatasetNames, allSkyDataArr):
 			for key, allSkyDataArr in allSkyData.items():
-				# h5py doesn't support complex values?!
+				# Store masks as separate arrays
+				allSkyName = [allSkyDatasetName + method, key, 'mask']
 				if isinstance(allSkyDataArr, np.ma.MaskedArray):
-					outputDataGroup = corrRef.require_dataset('{0}-{1}-{2}'.format(allSkyDatasetName, key, 'mask') , allSkyDataArr.shape, compression = 'lzf', dtype = np.float64)
-					outputDataGroup[...] = allSkyDataArr.mask
-					outputDataGroup.attrs.create('options', str(options))
-					outputDataGroup.attrs.create('fillValue', 100.)
-
+					writeDataset(corrRef, allSkyDataArr.mask, allSkyName, [('options', str(options)), ('fillValue', 100.)], np.float64)
 					allSkyDataArr = allSkyDataArr.filled(100.)
+					updatedDatasetNames.append(allSkyName)
 
+				allSkyName[-1] = 'real'
+				writeDataset(corrRef, allSkyDataArr.real.astype(np.float64), allSkyName, [('options', str(options))], np.float64)
+				updatedDatasetNames.append(allSkyName)
+				
+				# h5py will fail to write if we have a complex array but zero values in the complex component, so...
+				if isinstance(allSkyDataArr.flatten()[0], np.complex128):
+					allSkyName[-1] = 'imag'
+					writeDataset(corrRef, allSkyDataArr.imag.astype(np.float64),allSkyName, [('options', str(options))], np.float64)
+					updatedDatasetNames.append(allSkyName)
 
-				outputDataGroup = corrRef.require_dataset('{0}-{1}-{2}'.format(allSkyDatasetName, key, 'real') , allSkyDataArr.shape, compression = 'lzf', dtype = np.float64)
-				outputDataGroup[...] = allSkyDataArr.real
-				outputDataGroup.attrs.create('options', str(options))
-
-				if isinstance(allSkyDataArr, complex):
-					outputDataGroup = corrRef.require_dataset('{0}-{1}-{2}'.format(allSkyDatasetName, key, 'imag') , allSkyDataArr.shape, compression = 'lzf', dtype = np.float64)
-					outputDataGroup[...] = allSkyDataArr.imag
-					outputDataGroup.attrs.create('options', str(options))
-
-	return outputFile, allSkyDatasetNames
+	return outputFile, updatedDatasetNames
 
 def monitor(fileLocation, obsType = 'XST', options = None, processedOutput = '/processed/', fileThreshold = 1, checkEvery = 10.):
-	"""Summary
+	"""Monitor a folder for new observation and process them when thresholds are met
 	
-	Returns:
-	    TYPE: Description
+	Args:
+	    fileLocation (str): Folder location to monitor
+	    obsType (str, optional): Type of observation
+	    options (dict, optional): Standard options / patch values dictionary
+	    processedOutput (str, optional): Subfolder to store processed files in
+	    fileThreshold (int, optional): Number of new files needed before we start a batch processing
+	    checkEvery (float, optional): How often to check for new files
+
 	"""
 	totalNewFiles = 0
 	while True:
@@ -143,7 +154,7 @@ def monitor(fileLocation, obsType = 'XST', options = None, processedOutput = '/p
 		obsFiles = [fileLocation + fileName for fileName in currentFiles if obsType.lower() in fileName]
 
 		if not os.path.isdir(fileLocation + processedOutput):
-			os.mkdir(fileLocation + processedOutput)
+			os.makedirs(fileLocation + processedOutput)
 
 		if len(obsFiles) > fileThreshold:
 			print("Succifient new files found! Begining to process {0} files.".format(len(obsFiles)))
@@ -160,22 +171,44 @@ def monitor(fileLocation, obsType = 'XST', options = None, processedOutput = '/p
 		print("We have currently processed {0} new files.".format(totalNewFiles))
 
 
-def processData(idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, subbandArr):
-	"""Summary
+def writeDataset(groupRef, dataset, nameList, attributes, dtypeVar):
+	"""Handler for output dataset writes
 	
 	Args:
-		idx (TYPE): Description
-		corrRef (TYPE): Description
-		calibrationArr (TYPE): Description
-		antPos (TYPE): Description
-		antLocs (TYPE): Description
-		options (TYPE): Description
-		rcuMode (TYPE): Description
-		stationLocation (TYPE): Description
-		rotation (TYPE): Description
+	    groupRef (h5Group): Group Reference to add dataset to
+	    dataset (np.ndarray): Numpy array
+	    nameList (list): Strings to format to give group name
+	    attributes (list(tuple)): List of tuples of attributes to add to the dataset
+	    dtypeVar (): Data type to save the dataset as (np.float64, np.complex128,...)
+	"""
+	print(nameList, type(dataset), type(dataset.flatten()[0]))
+	outputDataGroup = groupRef.require_dataset('-'.join(nameList), dataset.shape, compression = 'lzf', dtype = dtypeVar)
+	outputDataGroup[...] = dataset
+
+	for key, val in attributes:
+		outputDataGroup.attrs.create(key, val)
+
+
+
+
+def processData(idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, subbandArr):
+	"""Handle the image generation to give sane outputs for multiprocessing
+	
+	Args:
+	    idx (int): Multiprocessing ID
+	    corrRef (h5Group): Correlation h5 group reference
+	    calibrationArr (np.array): Imported calibration data array
+	    antPos (np.array): Raw antenna locations (GCRS)
+	    antLocs (np.array): StationCoord Antenna location
+	    options (dict): Options Dictionary
+	    rcuMode (int): RCU mode for observation
+	    stationLocation (list): [lon, lat, alt] for station
+	    rotation (float): Station Rotation (east of north)
+	    groupPrefix (list): Group name prefix
+	    subbandArr (list): List of subbands to process
 	
 	Returns:
-		TYPE: Description
+	    int, list, list: Multiprocessing id, list of dataset name, list of datasets
 	"""
 	allSkyDatasetNames = []
 	allSkyDataArr = []
@@ -198,13 +231,13 @@ def processData(idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode,
 	return idx, allSkyDatasetNames, allSkyDataArr
 
 def basicInitialisation(options):
-	"""Summary
+	"""Get station information from the passed dictionary.
 	
 	Args:
-	    options (TYPE): Description
+	    options (dict): Default/patched dictionary
 	
 	Returns:
-	    TYPE: Description
+	    list: Station / imaging useful parameters
 	"""
 	if not options:
 		options = defaultDict.default()

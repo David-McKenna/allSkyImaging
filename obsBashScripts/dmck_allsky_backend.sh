@@ -1,11 +1,10 @@
 ﻿
 #!/bin/bash
-clear
 swlevel 2
 
 
-if test $# != 5; then
-	echo "Incorrect inputs: ./dmck_run_allsky.sh <minutes> <duty cycle> <subband mode 3> <subband mode 5> <subband mode 7>"
+if test $# != 6; then
+	echo "Incorrect inputs: ./dmck_allsky_backend.sh <output folder> <minutes> <duty cycle> <subband mode 3> <subband mode 5> <subband mode 7>"
 	exit;
 fi
 
@@ -15,42 +14,37 @@ CURRSEC=0
 RUNCOUNT=0
 
 # Determine the duty cycles for the given observation, time of the next cycle begining
-let MAXRUNS=$1*60/$2 # 24 hour cycle
-NEXTRUNOFFSET=$2
+let MAXRUNS=$2*60/$3
+NEXTRUNOFFSET=$3
 NEXTRUNOFFSET=$((NEXTRUNOFFSET*60))
 NEXTRUN=$NEXTRUNOFFSET
 
-echo "Running for $1 minutes ($MAXRUNS cycles) with an intended duty cycle of $2 minutes."
+echo "Running for $2 minutes ($MAXRUNS cycles) with an intended duty cycle of $3 minutes."
 
 # Add an AllSky suffix to the input folder
-folder_name='/data/home/user1/data/'`date +"%Y"`'/'`date +"%m"`'/'`date +"%d"`'/xst/mode'
-
-mkdir -p $folder_name'3/'
-mkdir -p $folder_name'5/'
-mkdir -p $folder_name'7/'
-
+folder_name=$1'mode'
 
 while true; do
 	# Call our generic observations script: <RCUMODE> <SUBBAND> <INT TIME (s)> <OUTPUT FOLDER SUFFIX>
         rspctl --mode=3
-	bash ./dmck_xst_generic_mode.sh 3 $3 5 $folder_name'3/'
+	bash ./dmck_xst_generic_mode.sh 3 $4 5 $folder_name'3/'
 
 
 
         rspctl --mode=5
         echo 'Activating HBA tiles by the default (Generic 2015) scheme.'
-        python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$folder_name"'last_hba_activation.log'
+        python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$folder_name"'5/last_hba_activation.log'
         sleep 5
 
-        bash ./dmck_xst_generic_mode.sh 5 $4 10 $folder_name'5/'
+        bash ./dmck_xst_generic_mode.sh 5 $5 10 $folder_name'5/'
 
 
         rspctl --mode=7
         echo 'Activating HBA tiles by the default (Generic 2015) scheme.'
-        python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$folder_name"'last_hba_activation.log'
+        python dmck_set_HBA_single_element_pattern_IE613.py -v 2>&1 | tee -a "$folder_name"'7/last_hba_activation.log'
         sleep 5
 
-        bash ./dmck_xst_generic_mode.sh 7 $5 10 $folder_name'7/'
+        bash ./dmck_xst_generic_mode.sh 7 $6 10 $folder_name'7/'
 
         # Check the current time to see if our duty cycle length has been met.
         # If it has, sleep until the next start time.

@@ -1,34 +1,31 @@
-"""Summary
+"""Main Imaging Functions
 """
 import numpy as np
-import scipy.ndimage
 
 from . import ftImaging
 from . import swhtImaging
 
 from dataTools.usefulFunctions import calcFreq
 
-def generatePlots(inputCorrelations, antPosArr, options, dateArr, rcuMode, subband, stationRotation, stationLocation = None, calibrationArr = None):
-	"""Summary
+def generatePlots(inputCorrelations, antPosArr, options, metaDataArr, rcuMode, subband, stationRotation, stationLocation = None, calibrationArr = None):
+	"""Head function for generating output data
 	
 	Args:
-	    inputCorrelations (TYPE): Description
-	    antPos (TYPE): Description
-	    plotOptions (TYPE): Description
-	    dateArr (TYPE): Description
-	    rcuMode (TYPE): Description
-	    subband (TYPE): Description
-	    multiprocessing (bool, optional): Description
-	    stationRotation (TYPE, optional): Description
-	    plotX (bool, optional): Description
-	    plotY (bool, optional): Description
-	    mask (bool, optional): Description
-	    lVec (None, optional): Description
-	    mVec (None, optional): Description
-	    calibrationX (None, optional): Description
-	    calibrationY (None, optional): Description
-	    baselineLimits (None, optional): Description
-	    stationLocation (None, optional): Description
+	    inputCorrelations (np.ndarray): Input correlations (nAnts x nAnts x nSamples array of correlations)
+	    antPosArr (list): Raw/StationCoord antenna location
+	    options (dict): Standard options dictionary
+	    metaDataArr (list): List of str(dict) from observation group attributes
+	    rcuMode (int): RCU Mode of observation
+	    subband (int): Subband observed
+	    stationRotation (float, optional): Station rotation, degrees east of north
+	    stationLocation (list, optional): [lon, lat, alt] of station
+	    calibrationArr (np.ndarray, optional): (nAnts, 512) calibration array
+	
+	Returns:
+	    np.ndarray: Output sky data
+	
+	Raises:
+	    RuntimeError: If an unknown processing method is provided
 	"""
 	processingOptions = options['imagingOptions']
 
@@ -44,8 +41,10 @@ def generatePlots(inputCorrelations, antPosArr, options, dateArr, rcuMode, subba
 
 	frequency = calcFreq(rcuMode, subband) * 1e6
 
-	labelOptions = [dateArr, rcuMode, subband, frequency]
+	labelOptions = [metaDataArr, rcuMode, subband, frequency]
 
+	# Check what output types are requested: Only process correlations if needed
+	# This is done by generating a dictionary of 'corrType': boolProcOrNot pairs.
 	processDict = {'XX': False, 'YY': False, 'XY': False, 'YX': False}
 	for value in processingOptions['correlationTypes']:
 		if len(value) == 2:
@@ -59,33 +58,34 @@ def generatePlots(inputCorrelations, antPosArr, options, dateArr, rcuMode, subba
 			processDict['XY'] = True
 			processDict['YX'] = True
 
-
+	# RFI mode is an interactive plot allowing you to see the sky location / intensity by clicking on the plot
 	rfiFlag = options['rfiMode']
 	if rfiFlag:
 		print('RFI Mode enabled, we will be forcing the FT method of choice (or FFT) and providing a GUI.')
 
+	# Pass our variables onto the processing type class.
 	procMethod = processingOptions['method']
 	if 'ft' in procMethod or rfiFlag:
-		imgData = ftImaging.ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, dateArr)
+		imgData = ftImaging.ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, metaDataArr)
 	elif 'swht' in procMethod:
-		imgData = swhtImaging.swhtProcessCorrelations(corrDict, options, processDict, rawAnts, stationLocation, dateArr, frequency, labelOptions)
+		imgData = swhtImaging.swhtProcessCorrelations(corrDict, options, processDict, rawAnts, stationLocation, metaDataArr, frequency, labelOptions)
 	else:
 		raise RuntimeError('Unknown processing method "{0}".'.format(procMethod))
 
 	return imgData
 
 def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, baselineLimits):
-	"""Summary
+	"""Extract the starting data from input variables
 	
 	Args:
-	    inputCorrelations (TYPE): Description
-	    antPosArr (TYPE): Description
-	    calibrationArr (TYPE): Description
-	    subband (TYPE): Description
-	    baselineLimits (TYPE): Description
+	    inputCorrelations (np.ndarray): Input correlations (nAnts x nAnts x nSamples array of correlations)
+	    antPosArr (np.ndarray): Raw/StationCoord atenna positions
+	    calibrationArr (np.ndarray, optional): (nAnts, 512) calibration array
+	    subband (int): Observing subband
+	    baselineLimits (list): Limit processed correlations based on provided baseline limits
 	
 	Returns:
-	    TYPE: Description
+	    list: Processed results
 	"""
 	antPos, rawAnts = antPosArr
 	rawAnts = rawAnts[:, 0, :][:, np.newaxis]

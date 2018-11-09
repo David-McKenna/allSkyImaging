@@ -10,24 +10,24 @@ import datetime
 
 
 def processInputLocation(fileName, dataType):
-	"""Summary
+	"""Get all files continaing a string in a given directory, or return the folder location if the input is a file.
 	
 	Args:
-	    fileName (TYPE): Description
-	    dataType (TYPE): Description
+	    fileName (string): Folder / file location
+	    dataType (string): String to check for (ACC, XST...)
 	
 	Returns:
-	    TYPE: Description
+	    list(fileList, fileName, folderPath): List of file(s), a sample filename and the folder location.,
 	
 	Raises:
-	    IOError: Description
+	    IOError: IOError raised if the location cannot be found.
 	"""
 	if os.path.isdir(fileName):
 		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if (fileVar.endswith('.dat') and (dataType.lower() in fileVar))]
 		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
 		if not len(fileList):
 			raise IOError('No {0} files found in provided directory.'.format(dataType.upper()))
-		folderPath = fileName
+		folderPath = os.path.dirname(os.path.abspath(fileName))
 		fileName = fileList[0]
 
 	else:
@@ -77,12 +77,12 @@ def processRCUMode(folderPath, calFile = None, modeApprox = 3):
 	return rcuMode
 
 def h5PrepNames(outputFile, fileName, groupNamePrefix):
-	"""Summary
+	"""Generate names for the h5 groups / output file.
 	
 	Args:
-	    outputFile (TYPE): Description
-	    fileName (TYPE): Description
-	    groupNamePrefix (TYPE): Description
+	    outputFile (string): Output filename (or None) to cleanup
+	    fileName (string): Sample filename
+	    groupNamePrefix (string): Sample groupname (or None)
 	
 	Returns:
 	    TYPE: Description
@@ -98,11 +98,11 @@ def h5PrepNames(outputFile, fileName, groupNamePrefix):
 	return outputFile, groupNamePrefix
 
 def includeCalibration(calibrationFile, groupRef):
-	"""Summary
+	"""Parse a calibration file and store it in the given h5 group.
 	
 	Args:
-	    calibrationFile (TYPE): Description
-	    groupRef (TYPE): Description
+	    calibrationFile (stirng): Calibration file location
+	    groupRef (h5Group): h5 Group Reference
 	"""
 	with open(calibrationFile, 'rb') as calRef:
 		headerArray = []
@@ -112,17 +112,22 @@ def includeCalibration(calibrationFile, groupRef):
 		while True:
 			line = calRef.readline()
 	
+			# Read until the header
 			if 'HeaderStart' in line:
 				continue
 
+			# Break at the end of the header
 			if 'HeaderStop' in line:
 				break
 
+			# Store the header values
 			headerArray.append(line)
-
+		# After HeaderStop, we can import the rest of the file as our input data
 		calVar = np.fromfile(calRef, dtype = np.complex128)
 		rcuCount = calVar.size / 512
 		calData = calVar.reshape(rcuCount, 512, order = 'F')
+
+		# X data: even values, y data: odd values.
 		calXData = calData[::2]
 		calYData = calData[1::2]
 
@@ -132,6 +137,7 @@ def includeCalibration(calibrationFile, groupRef):
 		calDataset[...] = calData
 		headerArray = [headerStr.strip('CalTableHeader').split(' = ') for headerStr in headerArray]
 
+		# Convert the header to a dictionary
 		keyValDict = {}
 		for key, val in headerArray:
 			key = ''.join(key.split('.'))
@@ -139,18 +145,19 @@ def includeCalibration(calibrationFile, groupRef):
 
 			keyValDict[key] = val
 
+		# Convert some of the header elements to their natural forms and store them as attributes.
 		keyValDict = patchKeyValDict(keyValDict)
 		for key, val in keyValDict.items():
 			calDataset.attrs.create(key, val)
 
 def patchKeyValDict(keyValDict):
-	"""Summary
+	"""Get header elements and store them in their natural forms.
 	
 	Args:
-	    keyValDict (TYPE): Description
+	    keyValDict (dict): Dictionary of values generated from a calfile header
 	
 	Returns:
-	    TYPE: Description
+	    dict: Dictionary with modified values
 	"""
 	keyValDict['ObservationMode'] = int(keyValDict['ObservationMode'])
 	keyValDict['ObservationDate'] = str(datetime.datetime.strptime(keyValDict['ObservationDate'], '%Y%m%d%H%M'))
@@ -161,6 +168,7 @@ def patchKeyValDict(keyValDict):
 	return keyValDict 
 
 # Double check rcu mode 2 / 4.... for calibration files
+# Store hardcoded naming schemes for the different RCU mode calibration files.
 rcuMode2Str = [None, 							# 0
 			'CalTable-{0}-LBA_OUTER-10_90.dat', # 1
 			'CalTable-{0}-LBA_OUTER-30_90.dat', # 2
@@ -169,22 +177,27 @@ rcuMode2Str = [None, 							# 0
 			'CalTable-{0}-HBA-110_190.dat', 	# 5
 			'CalTable-{0}-HBA-170_230.dat',		# 6
 			'CalTable-{0}-HBA-210_250.dat']		# 7
+
 def checkRequiredFiles(fileLocations, stationName, rcuMode):
-	"""Summary
+	"""Ensure we have the files needed to continue, or download them.
 	
 	Args:
-	    fileLocations (TYPE): Description
-	    stationName (TYPE): Description
-	    rcuMode (TYPE): Description
+	    fileLocations (dict): Dictionary of expected file locations
+	    stationName (string): Station ID
+	    rcuMode (int): Observing RCU Mode
 	"""
 	remoteURLDict = fileLocations['remoteURL']
 
 	for key, value in fileLocations.items():
 		if key not in ['outputH5Location', 'remoteURL', 'calibrationLocation']:
 			# If the local file doesn't exist, download a copy.
+			folderLoc = '/'.join(value.split('/')[:-1])
+			fileName = value.split('/')[-1]
+			if not os.path.exists(folderLoc):
+				os.makedirs(folderLoc)
 			if not os.path.exists(value):
-				print('Downloading {0} from {1}'.format(value[2:], remoteURLDict[key] + value[2:]))
-				urllib.urlretrieve(remoteURLDict[key] + value[2:], value)
+				print('Downloading {0} from {1}'.format(fileName, remoteURLDict[key] + fileName))
+				urllib.urlretrieve(remoteURLDict[key] + fileName, value)
 
 		elif key == 'calibrationLocation': # Grabbing the calibration file needs a few changes to the call
 			if os.path.exists(value):
@@ -196,14 +209,14 @@ def checkRequiredFiles(fileLocations, stationName, rcuMode):
 				urllib.urlretrieve(remoteName, value)
 
 def processTxt(fileLoc, stationName):
-	"""Summary
+	"""Used to process the stationrotation.txt file
 	
 	Args:
-	    fileLoc (TYPE): Description
-	    stationName (TYPE): Description
+	    fileLoc (string): File location
+	    stationName (string): Station ID
 	
 	Returns:
-	    TYPE: Description
+	    float: Station rotation (degrees east of north)
 	"""
 	with open(fileLoc, 'r') as fileRef:
 		stationLine = [line for line in fileRef if stationName.upper() in line][0]
@@ -212,15 +225,15 @@ def processTxt(fileLoc, stationName):
 	return stationRotation
 
 def parseBlitzFile(linesArray, keyword, refLoc = False):
-	"""Summary
+	"""Parse an element of a blitz config given the name of the array
 	
 	Args:
-	    linesArray (TYPE): Description
-	    keyword (TYPE): Description
-	    refLoc (bool, optional): Description
+	    linesArray (list): List of lines in a given config file
+	    keyword (string): Keyword to trigger extracting the next array
+	    refLoc (bool, optional): if true, add an offset to account for an extra line prior to the array being read
 	
 	Returns:
-	    TYPE: Description
+	    np.ndarray: Blitz config array converted to numpy array
 	"""
 
 	# Strip all the newline characters
@@ -272,13 +285,13 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 	return arrayData
 
 def __processLine(line):
-	"""Summary
+	"""Convert a blitz line to be purely float elements
 	
 	Args:
-	    line (TYPE): Description
+	    line (string): Blitz config sub-array line
 	
 	Returns:
-	    TYPE: Description
+	    list(float): Processed line
 	"""
 	line = filter(None, line.split(' '))
 	return [float(element) for element in line] 

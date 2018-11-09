@@ -176,8 +176,10 @@ def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	u /= uvMax
 	v /= uvMax
 
-	res = 1. / (2. * uvMax) # 2x for Nyquist sampling
-	px = int(2. * uvMax / res)
+	#res = 1. / (2. * uvMax) # 2x for Nyquist sampling
+	#px = int(2. * uvMax / res)
+	px = 256
+	res = px / (2. * uvMax)
 	
 	print(np.max(u), np.max(v), uvMax, res)
 	# Temp debug
@@ -336,7 +338,7 @@ def initialiseLocalFiles(args):
 			urllib.urlretrieve("https://raw.githubusercontent.com/griffinfoster/SWHT/master/SWHT/data/LOFAR/StaticMetaData/IE613-AntennaField.conf", antFieldFile)
 	
 	
-	antArrFile = "./stations_etrs.txt" # TODO: Find public replacement for station lat/lon
+	antArrFile = "./fallows_stations_etrs.txt" # TODO: Find public replacement for station lat/lon
 	
 	hbaDeltas = "./IE613-iHBADeltas.conf"
 	
@@ -557,6 +559,8 @@ def beamPlot(idx, img, dummy, pixels, freq, outputFolder, fftType, colIdx, subpl
 	ax1.set_zlim(plotLim[0], plotLim[1])
 	ax1.contour(X, Y, img, zdir = 'z', offset = ax1.get_zlim()[0],  cmap = 'viridis', vmax = plotLim[1], vmin = plotLim[0], linewidths = 1.)
 
+	#im = ax1.imshow(imgCpy, cmap = 'viridis', vmax = plotLim[1], vmin = plotLim[0])
+
 	plotAboveAxis = img.copy()
 	plotAboveAxis[limitPlots] = np.nan
 
@@ -593,7 +597,6 @@ def mpCheckAndCallFT(idx, dummy, uvw, px, res, fftType, maskVar, mpPool = None):
 	return returnVar
 
 def mainCall(opts, args):
-	debugRef = h5py.File('./debug.h5', 'a')
 	# Cleanup any past plots
 	plt.close('all')
 
@@ -700,7 +703,6 @@ def mainCall(opts, args):
 		sunObj.compute(obs)
 		print(refTimeUtc, refTimeIst)
 			
-		#TODO: Progamatically adjust
 		uvPlots = sum([pltHBA, pltLBA])
 		fig = plt.figure(idx, figsize=(uvPlots * 8, 10))
 		
@@ -724,17 +726,9 @@ def mainCall(opts, args):
 			colIdx +=1
 		if pltHBA:
 			hbaRet.append([idx, mpCheckAndCallFT(idx, dummy, uvwHBA, px, res, fftType, maskVar, mpPool)])
-		
-		h5Shape = list(lbaRet[-1][1].shape)
-		print(h5Shape)
-		h5Shape.append(3)
-		colIdx = 0
-		if not enableMp:
-			debugRet = debugRef.create_dataset(str(idx), h5Shape, compression = 'lzf')
 
-			debugRet[..., 0] = lbaRet[-1][1]
-			debugRet[..., 1] = hbaRet[-1][1]
-			debugRet[..., 2] = lbaRet[-1][1] - hbaRet[-1][1]
+		if not enableMp:
+			colIdx = 0
 			if pltLBA:
 				beamPlot(idx, lbaRet[-1][1], dummy, pixels, freqLBA, outputFolder, fftType, colIdx, subplotTuple, 'HBA')
 				colIdx += 1

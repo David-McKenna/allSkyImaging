@@ -1,4 +1,4 @@
-"""Summary
+"""Handy functions used througohut the module.
 """
 
 from functools import wraps
@@ -33,7 +33,7 @@ def calcFreq(rcuMode, subband):
 	    subband (int): Subband observed
 	
 	Returns:
-	    TYPE: Description
+	    float: Frequency of observation (in MHz)
 	"""
 
 	baseFreq = 100.0
@@ -42,19 +42,19 @@ def calcFreq(rcuMode, subband):
 	rcuMode = int(rcuMode)
 	subband = int(subband)
 	if rcuMode == 5:
-		freqOff = 100e6
+		freqOff = 100
 
 	elif rcuMode == 6:
-		freqOff = 160e6
+		freqOff = 160
 		baseFreq = 80.0
 
 	elif rcuMode == 7:
-		freqOff = 200e6
+		freqOff = 200
 
 	else:
 		freqOff = 0
 
-	frequency = ((baseFreq / 512 ) * (subband) + (freqOff/1e6))
+	frequency = ((baseFreq / 512 ) * (subband) + (freqOff))
 
 	return frequency
 

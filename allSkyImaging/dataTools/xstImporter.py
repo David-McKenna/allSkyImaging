@@ -8,17 +8,18 @@ import datetime
 from genericImportTools import processInputLocation, processRCUMode, includeCalibration
 
 def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibrationFile = None, activationPattern = None):
-	"""Summary
+	"""Import a/a folder of XST observations.
 	
 	Args:
-	    fileName (TYPE): Description
-	    outputFile (None, optional): Description
-	    groupNamePrefix (None, optional): Description
-	    rcuMode (None, optional): Description
-	    calibrationFile (None, optional): Description
+	    fileName (str): Input file/folder name
+	    outputFile (str): Output h5 name
+	    groupNamePrefix (str): Output h5 group name
+	    rcuMode (int, optional): RCU Observing Mode
+	    calibrationFile (str, optional): Calibration file location
+	    activationPattern (str, optional): HBA Activation pattern name
 	
 	Returns:
-	    TYPE: Description	
+	    str, str: Output file location, output group name
 	"""
 
 	# Gather the XST files in a given location
@@ -62,22 +63,22 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 		groupRef = outputRef.require_group(groupNamePrefix)
 
 		dataArr = []
-		for fileName in fileList:
-			with open(fileName, 'rb') as dataRef:
+		for fileNameVar in fileList:
+			with open(fileNameVar, 'rb') as dataRef:
 				# Read the dataset fromt he binary file
 				datasetComplex = np.fromfile(dataRef, dtype = np.complex128)
 				reshapeSize = datasetComplex.size / (192 ** 2)
 
 				# Check if the file is incomplete (missing bytes or corrupted, all files should be multiples of a 192, 192 array)
 				if datasetComplex.size % (192 ** 2) > 0:
-					print('INCOMPLETE FILE SKIPPED: {0}, SIZE ONLY {1}, MISSING {2} DATAPOINTS'.format(fileName, datasetComplex.size, (192 ** 2) - datasetComplex.size % (192 ** 2)))
+					print('INCOMPLETE FILE SKIPPED: {0}, SIZE ONLY {1}, MISSING {2} DATAPOINTS'.format(fileNameVar, datasetComplex.size, (192 ** 2) - datasetComplex.size % (192 ** 2)))
 					nullFiles += 1
 					continue
 
 				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, order = 'F')
 
 				# Extract basic information from the filename
-				fileNameMod = fileName.split('/')[-1]
+				fileNameMod = fileNameVar.split('/')[-1]
 				fileNameExtract = fileNameMod.split('_')
 				dateTimeObj = datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S')
 				dateTime = str(datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S'))
@@ -86,7 +87,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 				# If we have the log files, parse some data from them
 				if logFiles:
-					logName = fileName + '.log'
+					logName = fileNameVar + '.log'
 					with open(logName, 'r') as logRef:
 						logData = [ast.literal_eval(line.split(' ')[-1].strip('\n')) for line in logRef[:6]]
 
@@ -113,7 +114,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 			groupNamePrefix = 'allSky-mode{0}-{1}'.format(rcuMode, str(dataArr[0][1]))
 
 			if calibrationFile:
-				groupNamePrefix += '-calibrated'
+				groupNamePrefix += '-calibrated-'
 
 		# Initialise the file, observation group
 		groupRef = outputRef.require_group(groupNamePrefix)
@@ -121,7 +122,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 		# Group our data by subband
 		dataArr= np.vstack(dataArr)
 		subbandArr = np.unique(dataArr[:, 0])
-		dateTimeArr = [dataArr[:, 1][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
+		#dateTimeArr = [dataArr[:, 1][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
 		datasetComplexArr = [dataArr[:, 2][dataArr[:, 0] == subbandVal] for subbandVal in subbandArr]
 		logDataArr = [list(dataArr[:, 4][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
 				
@@ -138,7 +139,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 			# For each subband, iterate over every saved frame and fill in the group attributes.
 			timeStep = 0
-			for dtIdx, logData in enumerate(logDataArr[idx]):
+			for logData in logDataArr[idx]:
 				print('Imported frame: {0}'.format(logData[-2]))
 				mode, subband, intTime, intCount, dateTimeObj, endTime = logData
 

@@ -1,11 +1,10 @@
-"""Summary
+"""Generate all of the information required to describe a given LOFAR station.
 
 Attributes:
     elemsDict (TYPE): Description
 """
 
 import numpy as np
-import ast
 
 from .genericImportTools import parseBlitzFile
 
@@ -139,5 +138,5 @@ def configureStation(fileLocations, activeElems, rcuMode, EU):
 	lat = lat * 180 /np.pi
 	height = wgsRad * np.cos(lat * np.pi / 180.) + arrayLoc[2] * np.sin(lat * np.pi / 180.) - wgs84A * np.sqrt(1. - wgs84E2 * np.sin(lat * np.pi / 180.) ** 2)
 
-
+	print(lat, lon, height, arrayLoc)
 	return posX, [lon, lat, height], arrayLoc, antLocs
