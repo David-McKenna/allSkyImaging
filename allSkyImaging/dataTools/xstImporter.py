@@ -30,11 +30,10 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 	try:
 		# Perform a quick test of RCU mode to see if we have a log file. Otherwise this will raise an IOError we can catch.
 		testRef = open(fileList[0] + '.log', 'r')
-		rcuModeRead = int(testRef[0].split(' ')[-1])
+		line = testRef.readline().strip('\n')
+		rcuModeRead = int(line.split(' ')[-1])
 		testRef.close()
-
-		if not rcuMode:
-			assert(rcuMode == rcuModeRead)
+		assert(rcuMode == rcuModeRead)
 
 		logFiles = True
 
@@ -84,22 +83,30 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 				dateTime = str(datetime.datetime.strptime(''.join(fileNameExtract[0:2]), '%Y%m%d%H%M%S'))
 				subbandStr = fileNameExtract[2]
 
+				print('Processing {0} observations from {1} at subband {2}'.format(reshapeSize, dateTime, subbandStr))
+
 
 				# If we have the log files, parse some data from them
 				if logFiles:
 					logName = fileNameVar + '.log'
 					with open(logName, 'r') as logRef:
-						logData = [ast.literal_eval(line.split(' ')[-1].strip('\n')) for line in logRef[:6]]
+						lines = [line.strip('\n').split(' ')[-1] for line in logRef]
 
-						assert(logData[0] == rcuMode)
-						assert(logData[1] == subbandStr[2:])
-						logData[2] = int(logData[2].strip('s'))
-						logData[3] = int(logData[3].strip('s')) / logData[2]
+						# AST broke for limited number of cases; revert to manual filtering.
+						logData = [[]] * 6
+
+						logData[0] = int(lines[0])
+						logData[1] = int(lines[1])
+						logData[2] = int(lines[2].strip('s'))
+						logData[3] = int(lines[3].strip('s')) / logData[2]
 						logData[4] = dateTimeObj
-						logData[5] = str(datetime.datetime.strptime(''.join(logData[4]), '%Y%m%d@%H%M%S'))
-
+						logData[5] = str(datetime.datetime.strptime(''.join(lines[4]), '%Y/%m/%d@%H:%M:%S'))
 						# If an assert has been raised here, you have an observation taken while the activation pattern was not fully applied.
-						assert((rcuMode < 5) or not False in ['253' not in line for line in logRef[6:]])
+						assert(logData[0] == rcuMode)
+						assert(logData[1] == int(subbandStr[2:]))
+						if not (rcuMode < 5) and False in ['253' not in line for line in lines[6:]]:
+							print('WARNGING: We have detected that the activation pattern was not properly applied. \nAs a result, we are skipping the observation at time {0}, subband {1}'.format(logData[5], subbandStr))
+							continue
 
 				# Otherwise, update the metadata with information we can gleam from the filename
 				else:
@@ -107,7 +114,6 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 					logData[1] = int(subbandStr[2:])
 					logData[3] = reshapeSize
 					logData[4] = dateTimeObj
-
 				dataArr.append(np.array([subbandStr, dateTime, datasetComplex, reshapeSize, logData], dtype = object))
 
 		if groupNamePrefix == 'allSkyObservation':
@@ -127,11 +133,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 		logDataArr = [list(dataArr[:, 4][dataArr[:, 0] == subbandVal]) for subbandVal in subbandArr]
 				
 		for idx, subband in enumerate(subbandArr):
-			# Extract the XX and YY correlations and stack them before saving them to disk
 			datasetComplex = np.dstack(datasetComplexArr[idx])
-			datasetComplexX = datasetComplex[::2, ::2, ...]
-			datasetComplexY = datasetComplex[1::2, 1::2, ...]
-			datasetComplex = np.stack([datasetComplexX, datasetComplexY], axis = -1)
 
 			# h5py doesn't want to place nicely, fill the array after creating it.
 			corrDataset = groupRef.require_dataset("{0}/correlationArray".format(subband), datasetComplex.shape, dtype = np.complex128, compression = "lzf")
@@ -139,8 +141,9 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 			# For each subband, iterate over every saved frame and fill in the group attributes.
 			timeStep = 0
+			print("Writing metadata to file. Note: this will be slow if you have previously processed this dataset, move or remove the old H5 file as needed.")
 			for logData in logDataArr[idx]:
-				print('Imported frame: {0}'.format(logData[-2]))
+				print('Imported frame at time {0} in subband {1}'.format(logData[-2], subband))
 				mode, subband, intTime, intCount, dateTimeObj, endTime = logData
 
 				timeDelta = datetime.timedelta(seconds = intTime / 2.)

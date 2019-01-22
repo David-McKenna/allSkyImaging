@@ -3,7 +3,7 @@
 import h5py
 import numpy as np
 import multiprocessing as mp
-import os
+import os, gc
 import time
 
 from dataTools import genericImportTools as importTools
@@ -88,13 +88,13 @@ def image(fileLocation, obsType = 'XST', options = None):
 
 		# If we have more than 5 subbands in the given processing folder, we probably are dealing with a subband scan. It'll be faster to parallelise
 		#	on a subband level than per-observation level as a result.
-		if options['multiprocessing'] and splitThreshold:
+		# ABANDONED: h5py Really does not like multithreading; too many race conditions to even try repair this. I'll leave it for future expansion.
+		if options['multiprocessing'] and splitThreshold and False:
 			options['multiprocessing'] = False
 
 			allSkyDatasetNames = np.zeros([len(subbandArr)], dtype = str)
-			allSkyDataArr = np.zeros([len(subbandArr)], dtype = object)
 
-			processCount = int(mp.cpu_count() * options['multiprocessingCoreFrac'])
+			processCount = mp.cpu_count() - 1
 			mpPool = mp.Pool(processes = processCount)
 			callBacks = [mpPool.apply_async(processData, args = ([idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, [subband]])) for idx, subband in enumerate(subbandArr)]
 	
@@ -104,37 +104,13 @@ def image(fileLocation, obsType = 'XST', options = None):
 			for asyncResult in callBacks:
 				idx, allSkyDatasetName, allSkyDataArr = asyncResult.get()
 				allSkyDatasetNames[idx] = allSkyDatasetName[0]
-				allSkyDataArr[idx] = allSkyDataArr[0]
 			
 			allSkyDatasetNames = list(allSkyDatasetNames)
-			allSkyDataArr = list(allSkyDataArr)
 
 		else:
-			__, allSkyDatasetNames, allSkyDataArr = processData(1, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, subbandArr)
+			__, allSkyDatasetNames = processData(1, corrRef, calibrationArr, antPos, antLocs, options, rcuMode, stationLocation, rotation, groupPrefix, subbandArr)
 
-		method = options['imagingOptions']['method']
-		updatedDatasetNames = []
-		# Store the output data in the same h5 file.
-		for allSkyDatasetName, allSkyData in zip(allSkyDatasetNames, allSkyDataArr):
-			for key, allSkyDataArr in allSkyData.items():
-				# Store masks as separate arrays
-				allSkyName = [allSkyDatasetName + method, key, 'mask']
-				if isinstance(allSkyDataArr, np.ma.MaskedArray):
-					writeDataset(corrRef, allSkyDataArr.mask, allSkyName, [('options', str(options)), ('fillValue', 100.)], np.float64)
-					allSkyDataArr = allSkyDataArr.filled(100.)
-					updatedDatasetNames.append(allSkyName)
-
-				allSkyName[-1] = 'real'
-				writeDataset(corrRef, allSkyDataArr.real.astype(np.float64), allSkyName, [('options', str(options))], np.float64)
-				updatedDatasetNames.append(allSkyName)
-				
-				# h5py will fail to write if we have a complex array but zero values in the complex component, so...
-				if isinstance(allSkyDataArr.flatten()[0], np.complex128):
-					allSkyName[-1] = 'imag'
-					writeDataset(corrRef, allSkyDataArr.imag.astype(np.float64),allSkyName, [('options', str(options))], np.float64)
-					updatedDatasetNames.append(allSkyName)
-
-	return outputFile, updatedDatasetNames
+	return outputFile, allSkyDatasetNames
 
 def monitor(fileLocation, obsType = 'XST', options = None, processedOutput = '/processed/', fileThreshold = 1, checkEvery = 10.):
 	"""Monitor a folder for new observation and process them when thresholds are met
@@ -210,8 +186,8 @@ def processData(idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode,
 	Returns:
 	    int, list, list: Multiprocessing id, list of dataset name, list of datasets
 	"""
-	allSkyDatasetNames = []
 	allSkyDataArr = []
+	updatedDatasetNames = []
 	for subbandVal in subbandArr:
 		if 'accObs' not in corrRef[groupPrefix]:
 			corrArr = corrRef[groupPrefix]['sb' + str(subbandVal)]['correlationArray']
@@ -222,13 +198,33 @@ def processData(idx, corrRef, calibrationArr, antPos, antLocs, options, rcuMode,
 
 		allSkyData = imagingHead.generatePlots(corrArr, [antPos, antLocs], options, dateArr, rcuMode, int(subbandVal), stationRotation = rotation, stationLocation = stationLocation, calibrationArr = calibrationArr)
 
-		# h5py only offers multithreaded writes through the use of MPI4py
 		allSkyDatasetName = '{0}sb{1}/imageData/'.format(groupPrefix, subbandVal)
-		allSkyDatasetNames.append(allSkyDatasetName)
-		allSkyDataArr.append(allSkyData)
+
+		method = options['imagingOptions']['method']
+
+		# Store the output data in the same h5 file.
+		for key, allSkyDataArr in allSkyData.items():
+			# Store masks as separate arrays
+			allSkyName = [allSkyDatasetName + method, key, 'mask']
+			if isinstance(allSkyDataArr, np.ma.MaskedArray):
+				writeDataset(corrRef, allSkyDataArr.mask, allSkyName, [('options', str(options)), ('fillValue', 100.)], np.float64)
+				allSkyDataArr = allSkyDataArr.filled(100.)
+				updatedDatasetNames.append(allSkyName)
+				allSkyName[-1] = 'real'
+
+			writeDataset(corrRef, allSkyDataArr.real.astype(np.float64), allSkyName, [('options', str(options))], np.float64)
+			updatedDatasetNames.append(allSkyName)
+			
+			# h5py will fail to write if we have a complex array but zero values in the complex component, so...
+			if isinstance(allSkyDataArr.flatten()[0], np.complex128):
+				allSkyName[-1] = 'imag'
+				writeDataset(corrRef, allSkyDataArr.imag.astype(np.float64),allSkyName, [('options', str(options))], np.float64)
+				updatedDatasetNames.append(allSkyName)
+
+		gc.collect()
 
 
-	return idx, allSkyDatasetNames, allSkyDataArr
+	return idx, updatedDatasetNames
 
 def basicInitialisation(options):
 	"""Get station information from the passed dictionary.

@@ -35,6 +35,7 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 			{'mode':'HBA_110_190MHZ', 'rcuID':5, 'array_type':'HBA', 'bw':100000000., 'refFreq': 150e6}, #5
 			{'mode':'HBA_170_230MHZ', 'rcuID':6, 'array_type':'HBA', 'bw':100000000., 'refFreq': 200e6}, #6
 			{'mode':'HBA_210_290MHZ', 'rcuID':7, 'array_type':'HBA', 'bw':100000000., 'refFreq': 225e6}] #7
+
 randWalk = [ 1, 14, 15, 15, 12, 11, 10,  9,  2, 15,  1,  4,  8,  4,  7,  0,  7,
         0, 14,  0, 11,  3,  2,  9,  5, 11,  3,  3, 11, 12,  3, 10, 12,  7,
        15, 13, 10,  9,  8,  2,  2, 13, 13,  0,  5, 14,  0,  9,  2,  0,  5,
@@ -50,7 +51,7 @@ custom_debug = (range(16) * 8)[:len(Effelsberg_elements_20091110)]
 Generic_Int_201512 =  [0,5,3,1,8,3,12,15,10,13,11,5,12,12,5,2,10,8,0,3,5,1,4,0,11,6,2,4,9,14,15,3,7,5,13,15,5,6,5,12,15,7,1,1,14,9,4,9,3,9,3,13,7,14,7,14,2,8,8,0,1,4,2,2,12,15,5,7,6,10,12,3,3,12,7,4,6,0,5,9,1,10,10,11,5,11,7,9,7,6,4,4,15,4,1,15],
 
 global activationSchemes
-activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug, randWalk]
+activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug, Generic_Int_201512]
 
 def eq2top_m(ha, dec):
 	"""Return the 3x3 matrix converting equatorial coordinates to topocentric
@@ -158,7 +159,7 @@ def dftImage(d,uvw,px,res,mask=False):
 
 def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	"""return a FFT image"""
-
+	raise RuntimeError('Functionality broken.')
 	print("Init FFT")
 	start_time = time.time()
 	nants=uvw.shape[0]
@@ -638,6 +639,11 @@ def mainCall(opts, args):
 		elif hbaActivation in [2, '2', 'debug', 'db', 'dbg']:
 			hbaActivation = 2
 			hbaActStr = '_Debug'
+
+		elif hbaActivation in [3, '3', 'gen15', 'generic15']:
+			hbaActivation = 3
+			hbaActStr = '_Generic2015'
+
 		elif isinstance(hbaActivation, int):
 			hbaActStr = '_unknown'
 		else:

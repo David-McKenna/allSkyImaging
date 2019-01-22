@@ -42,6 +42,7 @@ def default():
 		'displayImages': False,
 		'generateVideo': True,
 		'videoFramerate': 8,
+		'ffmpegLoc': 'ffmpeg',
 
 		'figureShape': [18, 14],
 
@@ -49,7 +50,7 @@ def default():
 		'interstellarSources': ['Polaris', 'Cas A', 'Cyg A', 'Sgr A', 'Tau A', 'Vir A', 'Cen A', 'Vela'],
 		'solarSystemSources': ['Sun', 'Jupiter', 'Moon', 'Uranus', 'Neptune'],
 
-		'colorBarMemory': 16, #n time steps, maxmin (defaults to 16, 2 seconds of video playback)
+		'colorBarMemory': 1, #n time steps, maxmin (defaults to 16, 2 seconds of video playback)
 		'maxPercentile': 99,
 		'minPercentile': 33,
 
@@ -58,7 +59,7 @@ def default():
 		'gridThickness': 0.5,
 		'backgroundColor': 'black',
 		'foregroundColor': 'white',
-		'radialLabelAngle': 0,
+		'radialLabelAngle': -20,
 		'fontSizeFactor': None,
 		'colorBar': True,
 		'graticule': True,
@@ -108,10 +109,15 @@ def patchDefault(newOptions):
 	for option, newValue in newOptions.items():
 		if ':' in option:
 			subDict, subOpt = option.split(':')
-			defaultDictionary[subDict][subOpt] = newValue
+			if (subDict in defaultDictionary) and (subOpt in defaultDictionary[subDict]):
+				defaultDictionary[subDict][subOpt] = newValue
+			else:
+				raise LookupError("The option '{0}' was not found".format(option))
 		else:
-			defaultDictionary[option] = newValue
-
+			if option in defaultDictionary:
+				defaultDictionary[option] = newValue
+			else:
+				raise LookupError("The option '{0}' was not found.".format(option))
 	return defaultDictionary
 
 def updateLocation(currDict, stationID, rcuMode):

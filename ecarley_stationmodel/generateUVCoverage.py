@@ -38,9 +38,11 @@ rcuInfo = [ {'mode':'OFF', 'rcuID':0, 'array_type':'LBA', 'bw':100000000., 'refF
 Effelsberg_elements_20091110 = [1,4,13,15,11,9,14,1,15,0,8,2,11,3,14,0,2,4,3,0,0,2,12,12,12,12,15,11,14,15,7,5,1,0,3,10,1,11,0,12,12,1,6,7,0,10,9,6,15,14,11,7,2,0,7,12,15,8,13,3,7,6,3,15,11,1,4,11,8,1,8,15,4,0,5,6,12,0,12,15,3,7,14,8,3,12,12,2,9,8,14,2,5,6,12,0]
 Generic_International_Station_20091110 = [15,0,15,3,9,15,14,2,0,3,4,14,10,8,5,15,12,0,2,11,3,12,12,1,5,4,4,8,6,3,0,5,3,11,3,2,8,15,13,8,3,2,9,1,14,8,8,0,12,13,0,11,15,3,12,3,13,3,10,5,0,10,1,6,4,10,3,15,3,14,0,12,0,7,0,12,7,3,13,0,7,3,15,4,14,4,3,8,4,9,12,0,14,9,3,11]
 custom_debug = (range(16) * 8)[:len(Effelsberg_elements_20091110)]
+Generic_Int_201512 = [0,5,3,1,8,3,12,15,10,13,11,5,12,12,5,2,10,8,0,3,5,1,4,0,11,6,2,4,9,14,15,3,7,5,13,15,5,6,5,12,15,7,1,1,14,9,4,9,3,9,3,13,7,14,7,14,2,8,8,0,1,4,2,2,12,15,5,7,6,10,12,3,3,12,7,4,6,0,5,9,1,10,10,11,5,11,7,9,7,6,4,4,15,4,1,15]
+
 
 global activationSchemes
-activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug]
+activationSchemes = [Effelsberg_elements_20091110, Generic_International_Station_20091110, custom_debug, Generic_Int_201512]
 
 def eq2top_m(ha, dec):
 	"""Return the 3x3 matrix converting equatorial coordinates to topocentric
@@ -58,7 +60,7 @@ def eq2top_m(ha, dec):
 		mapMatrix = mapMatrix.transpose([2, 0, 1])
 	return mapMatrix
 
-def get_baseline(i, j, src, obs, includeSelfRef = True):
+def get_baseline(i, j, src, obs):
 	"""Return the baseline corresponding to i,j""" 
 	
 	bl = j - i
@@ -70,7 +72,6 @@ def get_baseline(i, j, src, obs, includeSelfRef = True):
 		m=src.map
 	except(AttributeError):
 		# Attribute error is consistently reached -- why?
-		print("Attribute Error Reached")
 		ra,dec = src._ra,src._dec
 		#opposite HA since the we want to move the source at zenith away to phase to the original zenith source
 		m = eq2top_m(ra-obs.sidereal_time(), dec)
@@ -149,7 +150,7 @@ def dftImage(d,uvw,px,res,mask=False):
 
 def fftImage(d,uvw,pxPlot,res,mask=False, useDVar = False, method = 'gaus'):
 	"""return a FFT image"""
-
+	raise RunetimeError('Functionality Broken.')
 	print("Init FFT")
 	start_time = time.time()
 	nants=uvw.shape[0]
@@ -246,8 +247,8 @@ def read_ant_xyz(antFieldFile, rcumode, station, activationDeltas = [None, None]
 	if activationDeltas[0] is not None:
 		activation, hbaDeltas = activationDeltas
 		activationArr = activationSchemes[activation]
+		print(activation, activationArr)
 		deltaArr = []
-		print(activationArr, hbaDeltas)
 
 		with open(hbaDeltas) as deltaRef:
 			readNext = False
@@ -266,7 +267,6 @@ def read_ant_xyz(antFieldFile, rcumode, station, activationDeltas = [None, None]
 	else:
 		activationArr = np.zeros([96], dtype = int)
 		deltaArr = np.zeros([16, 3])
-
 	
 	with open(antFieldFile) as fh:	
 		readXYZ=False
@@ -304,7 +304,7 @@ def read_ant_xyz(antFieldFile, rcumode, station, activationDeltas = [None, None]
 				cl=' '.join(line.split())
 				ants.append(map(float,cl.split(' ')))
 	
-				linecnt+=1         
+				linecnt+=1
 
 	xyz = [[a[0] + arr_x + deltaArr[activationArr[idx]][0],
 			a[1] + arr_y + deltaArr[activationArr[idx]][1],
@@ -583,6 +583,10 @@ def mainCall(opts, args):
 		elif hbaActivation in [2, '2', 'debug', 'db', 'dbg']:
 			hbaActivation = 2
 			hbaActStr = '_Debug'
+			
+		elif hbaActivation in [3, '3', 'gen15', 'generic15']:
+			hbaActivation = 3
+			hbaActStr = '_Generic2015'
 		else:
 			raise LookupError("Unknown Activation Scheme {0}!".format(hbaActivation))
 	else:

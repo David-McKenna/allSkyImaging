@@ -40,7 +40,7 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 		print('RFI Mode enabled, we will be forcing the FT method of choice (or FFT) and providing a GUI.')
 
 	# Get the observing angle + generate the l, m values to FT
-	vecRange = np.cos([-1. * fov, 0])
+	vecRange = np.sin([-1. * fov / 2., fov / 2.])
 
 	lVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / lVec) or 0.008 ) # Default to 256 pixels
 	mVec = np.arange(vecRange[0], vecRange[1] + 0.01, (2. / mVec) or 0.008 )
@@ -49,7 +49,7 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 	mask = np.zeros([lVec.size, mVec.size], dtype = bool)
 	if options['imagingOptions']['maskOutput']:
 		dist = np.sqrt(np.square(np.meshgrid(lVec)) + np.square(np.meshgrid(mVec)).T)
-		mask[dist >= vecRange[1]] = True
+		mask[dist >= vecRange[1] * 1.0005] = True # Offset to account for pixelisation
 
 
 	if 'dft' in procMethod:
@@ -59,8 +59,9 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 		imagingFunc = fftImage
 
 	else:
-		print('Unknown Processing Method {0}, forcing FFT with a rectangular kernel. (Debug: rfiFlag={1})'.format(procMethod, rfiFlag))
-		options['imagingOptions']['method'] = 'fft/rect'
+		print('Unknown Processing Method {0}, forcing DFT. (Debug: rfiFlag={1})'.format(procMethod, rfiFlag))
+		options['imagingOptions']['method'] = 'dft'
+		imagingFunc = dftImage
 
 	# Process the correlations through the provided method
 	procDict = {}
@@ -164,9 +165,19 @@ def dftImage(correlationMatrix, posX, posY, obsFreq, lVec, mVec, options):
 
 	# Should be able to fully vectorise this over all channels, should give a nice speedup if we pass frames as alternative channels... for another day.
 	if options['multiprocessing']:
-		processCount = int(mp.cpu_count()-1)
-		fragments = np.array_split(np.arange(frameCount), processCount)
+		processCount = int(mp.cpu_count()-1) # Leave a thread for OS / disk I/O, etc.
 		mpPool = mp.Pool(processes = processCount)
+		
+		# Attempting to pass more than ~350 correlations per thread in a 3 thread/16GB system is a OOM situation -- limit each set to 200
+		altCalc = int(np.ceil(frameCount / 200.))
+
+		# In the case that we do use the alternative limit, spin up a multiple of n_proc threads to ensure a minimal amount of cores are idle.
+		if (altCalc > processCount):
+			altCalc += altCalc % processCount
+			processCount = altCalc - 1
+
+		chunkCount = max([altCalc, processCount])
+		fragments = np.array_split(np.arange(frameCount), chunkCount) # int 200: err on the side of caution and use another worker thread if needed.
 		callBacks = [mpPool.apply_async(ftWorkers.dftWorker, args = ([idx, correlationMatrix[..., fragmentChunk], obsFreq, weight, conjWeight, skyView[..., fragmentChunk]])) for idx, fragmentChunk in enumerate(fragments)]
 
 		mpPool.close()

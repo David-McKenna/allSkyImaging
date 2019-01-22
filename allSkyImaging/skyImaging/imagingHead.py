@@ -46,6 +46,9 @@ def generatePlots(inputCorrelations, antPosArr, options, metaDataArr, rcuMode, s
 	# Check what output types are requested: Only process correlations if needed
 	# This is done by generating a dictionary of 'corrType': boolProcOrNot pairs.
 	processDict = {'XX': False, 'YY': False, 'XY': False, 'YX': False}
+
+	if isinstance(processingOptions['correlationTypes'], str):
+		processingOptions['correlationTypes'] = [processingOptions['correlationTypes']]
 	for value in processingOptions['correlationTypes']:
 		if len(value) == 2:
 			processDict[value] = True
@@ -93,23 +96,12 @@ def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, b
 	posY = antPos[..., 1]
 	posZ = antPos[..., 2]
 
-	inputCorrelationsX = inputCorrelations[..., 0]
-	inputCorrelationsY = inputCorrelations[..., 1]
-
-	if calibrationArr is not None:
-		print('Calibrating data for subband {0}'.format(subband))
-
-		calSubbandX = calibrationArr[:, subband, 0]
-		calSubbandY = calibrationArr[:, subband, 1]
-
-		calMatrixXArr = np.outer(calSubbandX, np.conj(calSubbandX).T)[..., np.newaxis]
-		inputCorrelationsX = np.multiply(np.conj(calMatrixXArr), inputCorrelationsX)
-
-		calMatrixYArr = np.outer(calSubbandY, np.conj(calSubbandY).T)[..., np.newaxis]
-		inputCorrelationsY = np.multiply(np.conj(calMatrixYArr), inputCorrelationsY)
-
+	baselines = np.sqrt(np.square(posX - posX.T) + np.square(posY - posY.T))
+	print(np.max(baselines), np.min(baselines[baselines > 0.]))
+	np.save('./bl.npy', baselines)
+	
 	if baselineLimits[0] or baselineLimits[1]:
-		baselines = posX - posY.T
+		baselines = np.sqrt(np.square(posX - posX.T) + np.square(posY - posY.T))
 		
 		if baselineLimits[0] == 'noAuto':
 			baselineLimits[0] = np.min(baselines[baselines > 0.]) * 1.0001
@@ -118,17 +110,26 @@ def __initialiseImaging(inputCorrelations, antPosArr, calibrationArr, subband, b
 
 		baselines = np.logical_or(np.abs(baselines) > maxBaseline, np.abs(baselines) < minBaseline)
 
-		inputCorrelationsX[baselines] = 0.
-		inputCorrelationsY[baselines] = 0.
+		inputCorrelations[::2, ::2, ...][baselines] = 0.
+		inputCorrelations[1::2, 1::2, ...][baselines] = 0.
 
-	# Reference
-	stackedArr = np.zeros(list(np.array(inputCorrelationsX.shape[:2]) * 2) +  [inputCorrelationsX.shape[2]], dtype = 'complex')
-	stackedArr[::2, ::2] = inputCorrelationsX[...]
-	stackedArr[1::2, 1::2] = inputCorrelationsY[...]
 
-	xxCorr = inputCorrelationsX
-	yyCorr = inputCorrelationsY
-	xyCorr = stackedArr[1::2, ::2]
-	yxCorr = stackedArr[::2, 1::2]
+	if calibrationArr is not None:
+		print('Calibrating data for subband {0}'.format(subband))
+
+		calSubbandX = calibrationArr[:, subband, 0]
+		calSubbandY = calibrationArr[:, subband, 1]
+
+		calMatrixXArr = np.outer(calSubbandX, np.conj(calSubbandX).T)[..., np.newaxis]
+		inputCorrelations[::2, ::2, ...] = np.multiply(np.conj(calMatrixXArr), inputCorrelations[::2, ::2, ...])
+
+		calMatrixYArr = np.outer(calSubbandY, np.conj(calSubbandY).T)[..., np.newaxis]
+		inputCorrelations[1::2, 1::2, ...] = np.multiply(np.conj(calMatrixYArr), inputCorrelations[1::2, 1::2, ...])
+
+
+	xxCorr = inputCorrelations[::2, ::2, ...]
+	yyCorr = inputCorrelations[1::2, 1::2, ...]
+	xyCorr = inputCorrelations[::2, 1::2, ...]
+	yxCorr = inputCorrelations[1::2, ::2, ...]
 
 	return [xxCorr, yyCorr, xyCorr, yxCorr], [posX, posY, posZ], rawAnts

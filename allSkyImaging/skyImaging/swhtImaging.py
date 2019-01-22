@@ -87,14 +87,14 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 	lMax = options['imagingOptions']['swhtlMax']
 	arraySize = almMap.getsize(lMax - 1)
 	results = np.zeros(arraySize, dtype = complex)
-	maskVar = np.ones(healpy.nside2npix(64), dtype=np.bool)
+	maskVar = np.ones(healpy.nside2npix(max(64, 2 * lMax)), dtype=np.bool)
 
 	# Account for autocorrelations (remove excess np.nans from results as r = 0 causes issues to say the least)
 	kZeroBool = kRVec == 0.
 
 	# Generate the mask based on the pointings: pixels are masked if they are never within 90 degrees of a zenith pointing
 	if options['imagingOptions']['maskOutput']:
-		pixelTheta, pixelPhi = healpy.pix2ang(64, np.arange(healpy.nside2npix(64)), lonlat = True)
+		pixelTheta, pixelPhi = healpy.pix2ang(max(64, 2 * lMax), np.arange(healpy.nside2npix(max(64, 2 * lMax))), lonlat = True)
 	
 		# Fuck everyhting about this coordinate system...
 		# For further context: standard latitutde and longitude, healpy and galactic coordinates all have different
@@ -149,7 +149,7 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 
 			# Convert the results to a healpy map
 			procDict['{0}-alm'.format(key)] = allSkyImageAlm
-			hpMap = healpy.alm2map(allSkyImageAlm, 64).astype(complex)
+			hpMap = healpy.alm2map(allSkyImageAlm, max(64, 2 * lMax)).astype(complex)
 
 			# Clone + generate imaginary map as well (as healpy seems to hate imaginary values results)
 			# Not sure if this is the right way to go about doing things, but it seems to function at least.
@@ -157,7 +157,7 @@ def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation
 			clone = allSkyImageAlm.copy()
 			clone.real = clone.imag
 			clone.imag = np.zeros_like(allSkyImageAlm)
-			hpMap.imag = healpy.alm2map(clone, 64)
+			hpMap.imag = healpy.alm2map(clone, max(64, 2 * lMax))
 
 			# Rotate to the right coordinate system
 			hpMap = galRotator.rotate_map(hpMap)

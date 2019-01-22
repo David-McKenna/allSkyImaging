@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if test $# != 5; then
-	echo "Incorrect inputs: ./dmck_perform_allsky_observation.sh <minutes> <duty cycle> <subband mode 3> <subband mode 5> <subband mode 7>"
+if test $# != 8; then
+	echo "Incorrect inputs: ./dmck_perform_allsky_observation.sh <minutes> <duty cycle> <subband mode 3 start> <subband mode 3 end> <subband mode 5 start> <subband mode 5 end> <subband mode 7 start> <subband mode 7 end>"
 	exit;
 fi
 
@@ -13,7 +13,7 @@ start_timestrp="`date +"%H:%M:%S"`"
 
 # Ensure the path for the log exists
 mkdir -p $basepath
-bash ./dmck_allsky_backend.sh $1 $basepath $2 $3 $4 $5 | tee -a $basepath$start_timestrp'/allSky.log' 
+bash ./dmck_allsky_backend.sh $1 $basepath $2 $3 $4 $5 $6 $7 $8 | tee -a $basepath$start_timestrp'/allSky.log' 
 
 # Remove the temporary folder when we finish
 rm -r $basepath'/temp_00/'

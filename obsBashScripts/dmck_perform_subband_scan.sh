@@ -19,4 +19,4 @@ mkdir -p $basepath$start_timestrp
 basepath=$basepath$start_timestrp'/'
 
 # Scan subband 51 to 451, sample every 5th subband for 10 seconds
-bash ./dmck_generic_subband_scan.sh 51 452 5 10 $basepath $1 | tee -a $basepath'allSky.log' 
+bash ./dmck_generic_subband_scan.sh 5 51 452 5 10 $basepath $1 | tee -a $basepath'allSky.log' 
