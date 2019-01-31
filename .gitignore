@@ -1,0 +1,8 @@
+*.pyc
+*.png
+*.mpg
+*.mp4
+*.h5
+*.npy
+*.log
+*.conf
