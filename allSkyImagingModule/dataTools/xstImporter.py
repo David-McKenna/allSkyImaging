@@ -76,6 +76,10 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, order = 'F')
 
+				if 'dropData' in outputFile:
+					datasetComplex = datasetComplex[..., -1]
+					reshapeSize = 1
+				
 				# Extract basic information from the filename
 				fileNameMod = fileNameVar.split('/')[-1]
 				fileNameExtract = fileNameMod.split('_')
@@ -152,7 +156,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 				# Each integration gets it's own frame, so it needs a unique attribute to corretly timestamp it.
 				# We log the time of the integration as the central time to better account for the sky during long integrations
 				for i in range(intCount):
-					corrDataset.attrs.create(str(timeStep), str({'mode': mode, 'subband': subband, 'integrationTime': intTime, 'activationPattern': str(activationPattern), 'integrationMidpoint': str(dateTimeObj + timeDelta * (i + 1)), 'integrationEnd': endTime})) # Can be decoded with ast
+					corrDataset.attrs.create('{0:04d}'.format(timeStep), str({'mode': mode, 'subband': subband, 'integrationTime': intTime, 'activationPattern': str(activationPattern), 'integrationMidpoint': str(dateTimeObj + timeDelta * (i + 1)), 'integrationEnd': endTime})) # Can be decoded with ast
 					timeStep += 1
 
 		# If provided a calibration file, include it in the dataset. This call is skipped if a calibration is already included

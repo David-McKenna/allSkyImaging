@@ -85,9 +85,9 @@ def ftPlot(allSkyIm, options, labelOptions, stationLocation, lVec, mVec, dateArr
 	if options['plottingOptions']['generateVideo'] and allSkyIm.shape[-1] > 10:
 		dateTime, rcuMode, subband, frequency, polarity, figNum = labelOptions
 		filePrefix = '/sb_{0}/{1}'.format(subband, dateTime[:2]) # Century of observation as a prefix
-		fileSuffix = "mode{0}{1}_{2}_{3}MHz_sb{4}.png".format(rcuMode, polarity, options['imagingOptions']['method'].replace('/', '-'), int(frequency/1e6), subband)
+		fileSuffix = "mode{0}{1}_{2}_{3}MHz_sb{4}".format(rcuMode, polarity, options['imagingOptions']['method'].replace('/', '-'), int(frequency/1e6), subband)
 
-		print("Exporting frames to video at " + "./{0}{1}.mpg".format(dateTime, fileSuffix))
+		print("Exporting frames to video at " + "./{0}{1}.mp4".format(dateTime, fileSuffix))
 		subprocess.call([options['plottingOptions']['ffmpegLoc'], '-y',  '-framerate',  str(options['plottingOptions']['videoFramerate']), '-pattern_type', 'glob',  '-i',  options['plottingOptions']['outputFolder'] + '{0}*{1}'.format(filePrefix, fileSuffix), '-r', str(max(options['plottingOptions']['videoFramerate'], 30)), options['plottingOptions']['outputFolder'] + "{0}{1}.mp4".format(dateTime, fileSuffix)])
 
 
