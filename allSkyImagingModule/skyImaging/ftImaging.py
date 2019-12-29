@@ -5,9 +5,9 @@ import scipy.ndimage
 
 import multiprocessing as mp
 import numpy as np
-from skyPlotter import ftPlot
+from .skyPlotter import ftPlot
 
-from workers import ftWorkers
+from .workers import ftWorkers
 
 def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, posArr, frequency, stationRotation, stationLocation, labelOptions, metaDataArr):
 	"""Head function that sets up values needed by both the FFT and DFT.

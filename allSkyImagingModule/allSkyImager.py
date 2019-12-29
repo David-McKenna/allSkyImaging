@@ -13,12 +13,6 @@ from dataTools import accImporter
 from dataTools import defaultDict
 from skyImaging import imagingHead
 
-reload(importTools)
-reload(antennaHandler)
-reload(xstImporter)
-reload(defaultDict)
-reload(imagingHead)
-
 def image(fileLocation, obsType = 'XST', options = None):
 	"""Image a given file/folder. Options can be given a patch dictionary.
 

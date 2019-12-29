@@ -11,9 +11,9 @@ from healpy.sphtfunc import Alm as almMap
 import healpy.newvisufunc
 import matplotlib.pyplot as plt
 
-from workers import swhtWorker
-from skyPlotter import swhtPlot
-from dataTools import usefulFunctions
+from .workers import swhtWorker
+from .skyPlotter import swhtPlot
+from . import usefulFunctions
 
 def swhtProcessCorrelations(corrDict, options, processDict, xyz, stationLocation, metaDataArr, frequency, labelOptions):
 	"""Handler for converting an observation to a full sky map through the spherical wave harmonic transform.

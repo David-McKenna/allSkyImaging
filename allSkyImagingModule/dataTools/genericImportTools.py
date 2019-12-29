@@ -5,7 +5,7 @@ import os
 import sys
 import select
 import ast
-import urllib
+from urllib import request as urllib
 import datetime
 
 
@@ -24,7 +24,7 @@ def processInputLocation(fileName, dataType):
 	"""
 	if os.path.isdir(fileName):
 		fileList = [os.path.join(fileName, fileVar) for fileVar in os.listdir(fileName) if (fileVar.endswith('.dat') and (dataType.lower() in fileVar))]
-		fileList.sort(key = lambda f: int(filter(str.isdigit, f)))
+		fileList.sort(key = lambda f: int(''.join(l for l in f if l.isdigit())))
 		if not len(fileList):
 			raise IOError('No {0} files found in provided directory.'.format(dataType.upper()))
 		folderPath = os.path.dirname(os.path.abspath(fileName))
@@ -113,11 +113,11 @@ def includeCalibration(calibrationFile, groupRef):
 			line = calRef.readline()
 	
 			# Read until the header
-			if 'HeaderStart' in line:
+			if 'HeaderStart' in str(line):
 				continue
 
 			# Break at the end of the header
-			if 'HeaderStop' in line:
+			if 'HeaderStop' in str(line):
 				break
 
 			# Store the header values
@@ -125,7 +125,7 @@ def includeCalibration(calibrationFile, groupRef):
 		# After HeaderStop, we can import the rest of the file as our input data
 		calVar = np.fromfile(calRef, dtype = np.complex128)
 		rcuCount = calVar.size / 512
-		calData = calVar.reshape(rcuCount, 512, order = 'F')
+		calData = calVar.reshape(int(rcuCount), 512, order = 'F')
 
 		# X data: even values, y data: odd values.
 		calXData = calData[::2]
@@ -135,7 +135,7 @@ def includeCalibration(calibrationFile, groupRef):
 
 		calDataset = groupRef.require_dataset("calibrationArray", calData.shape, dtype = np.complex128, compression = "lzf")
 		calDataset[...] = calData
-		headerArray = [headerStr.strip('CalTableHeader').split(' = ') for headerStr in headerArray]
+		headerArray = [str(headerStr).strip('CalTableHeader').split(' = ') for headerStr in headerArray]
 
 		# Convert the header to a dictionary
 		keyValDict = {}
@@ -266,7 +266,7 @@ def parseBlitzFile(linesArray, keyword, refLoc = False):
 	splitTuples =  linesArray[triggerLine][:startArrayLoc].split('x')
 
 	# Filter out spaces / null characters
-	arrayShape = filter(None, splitTuples)[:arrayShapeParts]
+	arrayShape = list(filter(None, splitTuples))[:arrayShapeParts]
 
 	# Use ast to parse the values to their true type (int, tuple, string...), but it should always return an int for us here.
 	arrayShape = [ast.literal_eval(strEle.strip(' ')) for strEle in arrayShape]

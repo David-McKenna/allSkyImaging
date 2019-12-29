@@ -5,7 +5,7 @@ import h5py
 import ast
 import datetime
 
-from genericImportTools import processInputLocation, processRCUMode, includeCalibration
+from .genericImportTools import processInputLocation, processRCUMode, includeCalibration
 
 def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibrationFile = None, activationPattern = None):
 	"""Import a/a folder of XST observations.
@@ -24,7 +24,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 	# Gather the XST files in a given location
 	fileList, fileName, folderPath = processInputLocation(fileName, dataType = 'XST')
-	fileList.sort(key = lambda f: int(filter(str.isdigit, f.split('sb')[-1]))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
+	fileList.sort(key = lambda f: int(''.join(l for l in f.split('sb')[-1] if l.isdigit()))) # Reorder by subband afterwards. Shouldn't be needed anymore, but it's nice to keep for peace of mind.
 
 	# Check if we have logs provided to extract metadata, otherwise set some sane defaults.
 	try:
@@ -73,7 +73,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 					print('INCOMPLETE FILE SKIPPED: {0}, SIZE ONLY {1}, MISSING {2} DATAPOINTS'.format(fileNameVar, datasetComplex.size, (192 ** 2) - datasetComplex.size % (192 ** 2)))
 					nullFiles += 1
 					continue
-
+				reshapeSize = int(reshapeSize)
 				datasetComplex = datasetComplex.reshape(192, 192, reshapeSize, order = 'F')
 
 				if 'dropData' in outputFile:
