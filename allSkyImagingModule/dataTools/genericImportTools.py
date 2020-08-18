@@ -159,6 +159,7 @@ def patchKeyValDict(keyValDict):
 	Returns:
 	    dict: Dictionary with modified values
 	"""
+	print(keyValDict)
 	keyValDict['ObservationMode'] = int(keyValDict['ObservationMode'])
 	keyValDict['ObservationDate'] = str(datetime.datetime.strptime(keyValDict['ObservationDate'], '%Y%m%d%H%M'))
 	keyValDict['CalibrationDate'] = str(datetime.datetime.strptime(keyValDict['CalibrationDate'], '%Y%m%d'))

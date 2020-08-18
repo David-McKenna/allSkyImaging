@@ -155,7 +155,7 @@ def importXST(fileName, outputFile, groupNamePrefix, rcuMode = None, calibration
 
 				# Each integration gets it's own frame, so it needs a unique attribute to corretly timestamp it.
 				# We log the time of the integration as the central time to better account for the sky during long integrations
-				for i in range(intCount):
+				for i in range(int(intCount)):
 					corrDataset.attrs.create('{0:04d}'.format(timeStep), str({'mode': mode, 'subband': subband, 'integrationTime': intTime, 'activationPattern': str(activationPattern), 'integrationMidpoint': str(dateTimeObj + timeDelta * (i + 1)), 'integrationEnd': endTime})) # Can be decoded with ast
 					timeStep += 1
 

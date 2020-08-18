@@ -57,9 +57,12 @@ def generatePlots(inputCorrelations, antPosArr, options, metaDataArr, rcuMode, s
 			processDict['XX'] = True
 			processDict['YY'] = True
 
-		elif value in ['U', 'V']:
+		elif value == "U":
 			processDict['XY'] = True
+
+		elif value == "V":
 			processDict['YX'] = True
+
 
 	# RFI mode is an interactive plot allowing you to see the sky location / intensity by clicking on the plot
 	rfiFlag = options['rfiMode']

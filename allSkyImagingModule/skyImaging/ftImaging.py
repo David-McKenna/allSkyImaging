@@ -83,11 +83,11 @@ def ftProcessCorrelations(procMethod, rfiFlag, corrDict, processDict, options, p
 			allSkySave = (procDict['XX'] - procDict['YY'])
 			allSkyImage = allSkySave.real
 		elif 'U' is method:
-			allSkySave = (procDict['XY'] + procDict['YX'])
+			allSkySave = 2 * procDict['XY']
 			allSkyImage = allSkySave.real
 		elif 'V' is method:
-			allSkySave = (procDict['YX'] - procDict['XY'])
-			allSkyImage = allSkySave.imag
+			allSkySave = 2 * procDict['YX']
+			allSkyImage = allSkySave.real
 		else:
 			print('How did we get this far with a broken method \'{0}\'? Processing the first value in procDict so it hasn\'t gone to waste...'.format(method))
 			allSkyImage = procDict.values()[0]
